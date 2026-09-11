@@ -1,0 +1,92 @@
+@import url("https://fonts.googleapis.com/css2?family=Newsreader:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap");
+@import "tailwindcss";
+
+:root {
+  --paper: #f6f3ec;
+  --surface: #ffffff;
+  --surface-2: #efeade;
+  --ink: #1b201f;
+  --ink-soft: #5a6462;
+  --border: #ddd5c2;
+  --accent: #1f5f5b;
+  --accent-soft: #e2eeec;
+  --accent-ink: #0f3d3a;
+  --danger: #a33d2c;
+  --danger-soft: #f5e2dd;
+  --amber: #a8681f;
+  --amber-soft: #f3e6d2;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #14181a;
+    --surface: #1a1f21;
+    --surface-2: #1f2528;
+    --ink: #e8e5db;
+    --ink-soft: #96a09d;
+    --border: #2b3234;
+    --accent: #5eb3ab;
+    --accent-soft: #1b2f2d;
+    --accent-ink: #bfe9e2;
+    --danger: #e08b76;
+    --danger-soft: #301f1a;
+    --amber: #d99a4e;
+    --amber-soft: #2c2213;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper: #14181a;
+  --surface: #1a1f21;
+  --surface-2: #1f2528;
+  --ink: #e8e5db;
+  --ink-soft: #96a09d;
+  --border: #2b3234;
+  --accent: #5eb3ab;
+  --accent-soft: #1b2f2d;
+  --accent-ink: #bfe9e2;
+  --danger: #e08b76;
+  --danger-soft: #301f1a;
+  --amber: #d99a4e;
+  --amber-soft: #2c2213;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+h1,
+h2,
+h3 {
+  font-family: "Newsreader", Georgia, serif;
+  font-weight: 600;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}

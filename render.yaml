@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: daybook-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    healthCheckPath: /health
+    preDeployCommand: uv run alembic upgrade head
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        sync: false # paste the Neon connection string here, in the Render dashboard
+      - key: JWT_SECRET
+        sync: false # a long random value — never the one used in local dev
+      - key: CORS_ORIGINS
+        sync: false # e.g. ["https://daybook.pages.dev"] — your Cloudflare Pages URL
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "15"
+      - key: REFRESH_TOKEN_EXPIRE_DAYS
+        value: "30"

@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+backend/.venv/
+.env
+!.env.example
+
+# Node
+node_modules/
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
+
+# Editors / OS
+.DS_Store
+.vscode/
+*.log
+
+# Docker
+docker-compose.override.yml

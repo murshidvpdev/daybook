@@ -1,0 +1,12 @@
+{
+  "name": "Daybook",
+  "short_name": "Daybook",
+  "description": "One ledger for routine, health, fitness, and money.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f3ec",
+  "theme_color": "#1f5f5b",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
