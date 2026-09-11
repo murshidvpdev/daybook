@@ -1,4 +1,13 @@
+import os
 from collections.abc import AsyncGenerator
+
+# Set before any app import: the test suite verifies real production-strictness
+# rate limits (test_rate_limiting.py), regardless of whatever a developer's
+# local backend/.env has relaxed them to for manual/E2E testing. Actual env
+# vars take priority over .env file values in pydantic-settings, so this wins.
+os.environ.setdefault("REGISTER_RATE_LIMIT", "5/minute")
+os.environ.setdefault("LOGIN_RATE_LIMIT", "10/minute")
+os.environ.setdefault("REFRESH_RATE_LIMIT", "30/minute")
 
 import pytest
 import pytest_asyncio

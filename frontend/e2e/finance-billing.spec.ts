@@ -64,9 +64,9 @@ test('accounts show a running balance from an opening balance', async ({ page })
   await page.fill('input[placeholder="Current balance"]', '45000')
   await page.getByRole('button', { name: 'Save' }).click()
 
-  await expect(page.getByText('₹45,000')).toBeVisible()
+  await expect(page.getByText('₹45,000').first()).toBeVisible()
 
   await page.fill('input[placeholder="Amount"]', '1000')
   await page.getByRole('button', { name: 'Add', exact: true }).click()
-  await expect(page.getByText('₹44,000')).toBeVisible()
+  await expect(page.getByText('₹44,000').first()).toBeVisible()
 })

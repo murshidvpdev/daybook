@@ -57,7 +57,7 @@ test('finance summary panel shows total balance, debt, and top spend account', a
   await page.fill('input[placeholder="Note (optional)"]', 'Rent')
   await page.getByRole('button', { name: 'Add', exact: true }).click()
 
-  await expect(page.getByText('₹47,000')).toBeVisible() // total balance updated
+  await expect(page.getByText('₹47,000').first()).toBeVisible() // total balance updated
   await expect(page.getByText('Spent this month')).toBeVisible()
   await expect(page.getByText('Most spent from')).toBeVisible()
   await expect(page.getByText('HDFC Bank').first()).toBeVisible()

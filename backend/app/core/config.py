@@ -21,6 +21,14 @@ class Settings(BaseSettings):
 
     cors_origins: list[str] = ["http://localhost:5173"]
 
+    # Deliberately overridable per environment: production should stay tight
+    # (these are the numbers a real single user ever needs), while local dev
+    # running a burst of E2E tests against one long-lived server process from
+    # one IP needs far more headroom — that's normal test traffic, not abuse.
+    register_rate_limit: str = "5/minute"
+    login_rate_limit: str = "10/minute"
+    refresh_rate_limit: str = "30/minute"
+
     @model_validator(mode="after")
     def _refuse_weak_secret_outside_development(self) -> "Settings":
         """Fails at startup, not at the first login someone else attempts —

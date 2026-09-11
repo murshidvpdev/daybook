@@ -35,7 +35,7 @@ def _set_refresh_cookie(response: Response, token: str) -> None:
 
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
-@limiter.limit("5/minute")
+@limiter.limit(lambda: settings.register_rate_limit)
 async def register(request: Request, payload: RegisterRequest, db: AsyncSession = Depends(get_db)) -> User:
     try:
         return await register_user(db, payload)
@@ -44,7 +44,7 @@ async def register(request: Request, payload: RegisterRequest, db: AsyncSession 
 
 
 @router.post("/login", response_model=AccessTokenResponse)
-@limiter.limit("10/minute")
+@limiter.limit(lambda: settings.login_rate_limit)
 async def login(
     request: Request, payload: LoginRequest, response: Response, db: AsyncSession = Depends(get_db)
 ) -> AccessTokenResponse:
@@ -59,7 +59,7 @@ async def login(
 
 
 @router.post("/refresh", response_model=AccessTokenResponse)
-@limiter.limit("30/minute")
+@limiter.limit(lambda: settings.refresh_rate_limit)
 async def refresh(
     request: Request,
     response: Response,
