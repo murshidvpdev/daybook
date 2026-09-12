@@ -50,19 +50,19 @@ postgresql+asyncpg://user:pass@ep-xxx.neon.tech/daybook?ssl=require
      ```
    - `CORS_ORIGINS` → `["https://daybook.pages.dev"]` (or whatever your actual Cloudflare Pages URL turns out to be — you can update this after step 4)
 5. Deploy. Render runs `alembic upgrade head` automatically before each deploy (that's the `preDeployCommand` in `render.yaml`).
-6. Note the URL Render gives your service. **Live at `https://daybook-5dls.onrender.com`** — already set in `frontend/public/_redirects`.
+6. Note the URL Render gives your service. **Live at `https://daybook-5dls.onrender.com`**.
 
 ## 4. Frontend — Cloudflare Pages
 
-1. Sign up at [pages.cloudflare.com](https://pages.cloudflare.com), connect the same GitHub repo.
+1. Sign up at [pages.cloudflare.com](https://pages.cloudflare.com), connect the same GitHub repo. If the dashboard defaults to the newer unified "Workers & Pages" flow, use the **"Continue to Pages"** link (bottom of the create-app screen) for the classic flow, which is what these settings assume.
 2. Build settings:
    - **Root directory**: `frontend`
    - **Build command**: `npm run build`
    - **Output directory**: `dist`
-3. Deploy. Cloudflare gives you a URL like `https://daybook.pages.dev`.
-4. Go back to Render and update `CORS_ORIGINS` to that exact URL if you set a placeholder earlier.
+3. Deploy. Cloudflare gives you a URL — **live at `https://daybook-d5a.pages.dev`**.
+4. Go back to Render and update `CORS_ORIGINS` to that exact URL.
 
-The `_redirects` file already in `frontend/public/` makes Cloudflare proxy `/api/*` to your Render backend at the edge, so the browser only ever talks to one origin — this is what keeps the login cookie working correctly on iOS Safari, which is fussy about cookies set across two different domains.
+`frontend/functions/api/[[path]].js` is a Cloudflare Pages Function that proxies every `/api/*` request to the Render backend, so the browser only ever talks to one origin (this Pages domain) — that's what keeps the login cookie working correctly on iOS Safari, which is fussy about cookies set across two different domains. (A `_redirects`-based proxy rule is the more commonly documented way to do this, but it didn't take effect on this project — likely Cloudflare's newer unified Workers+assets pipeline handling `_redirects` differently than classic Pages — so this uses an explicit Function instead, which works regardless.)
 
 ## 5. First login
 
