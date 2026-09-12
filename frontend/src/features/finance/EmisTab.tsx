@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
 import { useState } from 'react'
 import { Card } from '../../components/Card'
-import { PlusIcon } from '../../components/Icons'
+import { PencilIcon, PlusIcon } from '../../components/Icons'
 import { api } from '../../lib/api'
 import type { Account, Emi } from '../../types/api'
 
@@ -19,6 +19,7 @@ export function EmisTab() {
     queryFn: async () => (await api.get<Account[]>('/finance/accounts')).data,
   })
   const [showNew, setShowNew] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   const remove = useMutation({
     mutationFn: async (id: string) => api.delete(`/finance/emis/${id}`),
@@ -64,6 +65,16 @@ export function EmisTab() {
         {emis?.map((emi) => {
           const account = accounts.find((a) => a.id === emi.account_id)
           const pct = Math.round((emi.installments_paid / emi.total_installments) * 100)
+          if (editingId === emi.id) {
+            return (
+              <EditEmiForm
+                key={emi.id}
+                emi={emi}
+                accounts={accounts}
+                onDone={() => setEditingId(null)}
+              />
+            )
+          }
           return (
             <Card key={emi.id} style={emi.is_due ? { borderColor: 'var(--amber)' } : undefined}>
               <div className="mb-1 flex items-start justify-between">
@@ -73,12 +84,23 @@ export function EmisTab() {
                     {account?.name ?? 'Account'} · ₹{Number(emi.monthly_amount).toLocaleString('en-IN')}/mo
                   </p>
                 </div>
-                <button
-                  onClick={() => remove.mutate(emi.id)}
-                  className="text-xs text-[var(--ink-soft)] hover:text-[var(--danger)]"
-                >
-                  Remove
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setEditingId(emi.id)}
+                    className="text-[var(--ink-soft)] hover:text-[var(--accent-ink)]"
+                    aria-label="Edit EMI"
+                  >
+                    <PencilIcon width={15} height={15} />
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (confirm(`Remove "${emi.name}"?`)) remove.mutate(emi.id)
+                    }}
+                    className="text-xs text-[var(--ink-soft)] hover:text-[var(--danger)]"
+                  >
+                    Remove
+                  </button>
+                </div>
               </div>
               <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--surface-2)]">
                 <div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${pct}%` }} />
@@ -107,6 +129,98 @@ export function EmisTab() {
         })}
       </div>
     </div>
+  )
+}
+
+function EditEmiForm({
+  emi,
+  accounts,
+  onDone,
+}: {
+  emi: Emi
+  accounts: Account[]
+  onDone: () => void
+}) {
+  const queryClient = useQueryClient()
+  const [name, setName] = useState(emi.name)
+  const [monthlyAmount, setMonthlyAmount] = useState(emi.monthly_amount)
+  const [totalInstallments, setTotalInstallments] = useState(String(emi.total_installments))
+  const [dueDay, setDueDay] = useState(String(emi.due_day))
+  const account = accounts.find((a) => a.id === emi.account_id)
+
+  const update = useMutation({
+    mutationFn: async () =>
+      (
+        await api.patch(`/finance/emis/${emi.id}`, {
+          name,
+          monthly_amount: monthlyAmount,
+          total_installments: Number(totalInstallments),
+          due_day: Number(dueDay),
+        })
+      ).data,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['finance'] })
+      onDone()
+    },
+  })
+
+  return (
+    <Card>
+      <div className="flex flex-col gap-3">
+        {account && (
+          <p className="text-xs text-[var(--ink-soft)]">
+            Debited from {account.name} ({typeLabel[account.account_type] ?? account.account_type}) — change the
+            account by removing and re-adding this EMI.
+          </p>
+        )}
+        <input
+          data-testid="edit-emi-name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="rounded-lg border border-[var(--border)] bg-[var(--paper)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+        />
+        <div className="grid grid-cols-3 gap-2">
+          <input
+            type="number"
+            placeholder="₹/month"
+            value={monthlyAmount}
+            onChange={(e) => setMonthlyAmount(e.target.value)}
+            className="rounded-lg border border-[var(--border)] bg-[var(--paper)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+          />
+          <input
+            type="number"
+            placeholder="Months"
+            value={totalInstallments}
+            onChange={(e) => setTotalInstallments(e.target.value)}
+            className="rounded-lg border border-[var(--border)] bg-[var(--paper)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+          />
+          <input
+            type="number"
+            placeholder="Due day"
+            min={1}
+            max={31}
+            value={dueDay}
+            onChange={(e) => setDueDay(e.target.value)}
+            className="rounded-lg border border-[var(--border)] bg-[var(--paper)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+          />
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => update.mutate()}
+            disabled={!name.trim() || !monthlyAmount || update.isPending}
+            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+          >
+            Save
+          </button>
+          <button onClick={onDone} className="rounded-lg px-4 py-2 text-sm text-[var(--ink-soft)]">
+            Cancel
+          </button>
+        </div>
+        {update.isError && (
+          <p className="text-xs text-[var(--danger)]">Couldn't save those changes — please try again.</p>
+        )}
+      </div>
+    </Card>
   )
 }
 

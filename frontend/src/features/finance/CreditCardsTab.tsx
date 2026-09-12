@@ -2,14 +2,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
 import { useState } from 'react'
 import { Card } from '../../components/Card'
-import { PlusIcon } from '../../components/Icons'
+import { PencilIcon, PlusIcon } from '../../components/Icons'
 import { api } from '../../lib/api'
 import { getLastCategory, setLastCategory } from '../../lib/lastCategory'
 import type { CreditCard, CreditCardBill, CreditCardSpendResult } from '../../types/api'
 import { CategoryPicker } from './CategoryPicker'
 import { dueBadge } from './dueBadge'
 
-type Panel = 'spend' | 'bills' | null
+type Panel = 'spend' | 'bills' | 'edit' | null
 
 export function CreditCardsTab() {
   const queryClient = useQueryClient()
@@ -66,12 +66,25 @@ export function CreditCardsTab() {
                   </p>
                   <p className={`text-xs font-medium ${badge.tone}`}>{badge.text}</p>
                 </div>
-                <button
-                  onClick={() => remove.mutate(card.id)}
-                  className="text-xs text-[var(--ink-soft)] hover:text-[var(--danger)]"
-                >
-                  Remove
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => togglePanel(card.id, 'edit')}
+                    className="text-[var(--ink-soft)] hover:text-[var(--accent-ink)]"
+                    aria-label="Edit card"
+                  >
+                    <PencilIcon width={15} height={15} />
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (confirm(`Remove "${card.name}"? This also removes its transactions.`)) {
+                        remove.mutate(card.id)
+                      }
+                    }}
+                    className="text-xs text-[var(--ink-soft)] hover:text-[var(--danger)]"
+                  >
+                    Remove
+                  </button>
+                </div>
               </div>
               <p className="tabular-nums text-xl font-semibold">₹{balance.toLocaleString('en-IN')}</p>
               {limit !== null && (
@@ -102,6 +115,9 @@ export function CreditCardsTab() {
                 <SpendForm cardId={card.id} onDone={() => setOpenPanel({ cardId: '', panel: null })} />
               )}
               {isOpen && openPanel.panel === 'bills' && <BillsPanel cardId={card.id} />}
+              {isOpen && openPanel.panel === 'edit' && (
+                <EditCreditCardForm card={card} onDone={() => setOpenPanel({ cardId: '', panel: null })} />
+              )}
             </Card>
           )
         })}
@@ -277,6 +293,83 @@ function BillsPanel({ cardId }: { cardId: string }) {
             </div>
           </div>
         ))}
+      </div>
+    </div>
+  )
+}
+
+function EditCreditCardForm({ card, onDone }: { card: CreditCard; onDone: () => void }) {
+  const queryClient = useQueryClient()
+  const [name, setName] = useState(card.name)
+  const [lastFour, setLastFour] = useState(card.last_four ?? '')
+  const [limit, setLimit] = useState(card.credit_limit ?? '')
+  const [dueDay, setDueDay] = useState(String(card.due_day))
+
+  const update = useMutation({
+    mutationFn: async () =>
+      (
+        await api.patch(`/finance/credit-cards/${card.id}`, {
+          name,
+          last_four: lastFour || null,
+          credit_limit: limit || null,
+          due_day: Number(dueDay),
+        })
+      ).data,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['finance'] })
+      onDone()
+    },
+  })
+
+  return (
+    <div className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--paper)] p-3">
+      <div className="flex flex-col gap-2">
+        <input
+          data-testid="edit-card-name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+        />
+        <div className="grid grid-cols-2 gap-2">
+          <input
+            placeholder="Last 4 digits"
+            maxLength={4}
+            value={lastFour}
+            onChange={(e) => setLastFour(e.target.value.replace(/\D/g, ''))}
+            className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+          />
+          <input
+            type="number"
+            placeholder="Credit limit"
+            value={limit}
+            onChange={(e) => setLimit(e.target.value)}
+            className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+          />
+        </div>
+        <label className="text-xs font-medium text-[var(--ink-soft)]">
+          Payment due day of month
+          <input
+            type="number"
+            min={1}
+            max={31}
+            value={dueDay}
+            onChange={(e) => setDueDay(e.target.value)}
+            className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+          />
+        </label>
+        <div className="flex gap-2">
+          <button
+            onClick={() => update.mutate()}
+            disabled={!name.trim() || update.isPending}
+            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+          >
+            Save
+          </button>
+          <button onClick={onDone} className="rounded-lg px-4 py-2 text-sm text-[var(--ink-soft)]">
+            Cancel
+          </button>
+        </div>
+        {update.isError && <p className="text-xs text-[var(--danger)]">Couldn't save those changes — please try again.</p>}
       </div>
     </div>
   )

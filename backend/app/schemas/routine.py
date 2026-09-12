@@ -9,6 +9,11 @@ class RoutineItemCreate(BaseModel):
     sort_order: int = 0
 
 
+class RoutineItemUpdate(BaseModel):
+    title: str | None = None
+    sort_order: int | None = None
+
+
 class RoutineItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
@@ -21,6 +26,12 @@ class RoutineCreate(BaseModel):
     name: str
     time_of_day: str = "morning"
     items: list[RoutineItemCreate] = []
+
+
+class RoutineUpdate(BaseModel):
+    name: str | None = None
+    time_of_day: str | None = None
+    sort_order: int | None = None
 
 
 class RoutineOut(BaseModel):

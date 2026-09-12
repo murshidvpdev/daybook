@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.routine import Routine, RoutineCompletion, RoutineItem
-from app.schemas.routine import RoutineCreate
+from app.schemas.routine import RoutineCreate, RoutineItemCreate, RoutineItemUpdate, RoutineUpdate
 
 
 class RoutineNotFound(Exception):
@@ -45,10 +45,51 @@ async def create_routine(db: AsyncSession, user_id: UUID, data: RoutineCreate) -
     return await _get_owned_routine(db, user_id, routine.id)
 
 
+async def update_routine(db: AsyncSession, user_id: UUID, routine_id: UUID, data: RoutineUpdate) -> Routine:
+    routine = await _get_owned_routine(db, user_id, routine_id)
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(routine, field, value)
+    await db.commit()
+    return await _get_owned_routine(db, user_id, routine_id)
+
+
 async def delete_routine(db: AsyncSession, user_id: UUID, routine_id: UUID) -> None:
     routine = await _get_owned_routine(db, user_id, routine_id)
     await db.delete(routine)
     await db.commit()
+
+
+async def add_item(db: AsyncSession, user_id: UUID, routine_id: UUID, data: RoutineItemCreate) -> Routine:
+    routine = await _get_owned_routine(db, user_id, routine_id)
+    db.add(RoutineItem(routine_id=routine.id, title=data.title, sort_order=data.sort_order))
+    await db.commit()
+    return await _get_owned_routine(db, user_id, routine_id)
+
+
+def _get_owned_item(routine: Routine, item_id: UUID) -> RoutineItem:
+    item = next((i for i in routine.items if i.id == item_id), None)
+    if item is None:
+        raise RoutineNotFound()
+    return item
+
+
+async def update_item(
+    db: AsyncSession, user_id: UUID, routine_id: UUID, item_id: UUID, data: RoutineItemUpdate
+) -> Routine:
+    routine = await _get_owned_routine(db, user_id, routine_id)
+    item = _get_owned_item(routine, item_id)
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(item, field, value)
+    await db.commit()
+    return await _get_owned_routine(db, user_id, routine_id)
+
+
+async def delete_item(db: AsyncSession, user_id: UUID, routine_id: UUID, item_id: UUID) -> Routine:
+    routine = await _get_owned_routine(db, user_id, routine_id)
+    item = _get_owned_item(routine, item_id)
+    await db.delete(item)
+    await db.commit()
+    return await _get_owned_routine(db, user_id, routine_id)
 
 
 async def toggle_item_completion(

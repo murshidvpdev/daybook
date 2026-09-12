@@ -26,7 +26,7 @@ test('a credit card shows up in Overview, is selectable for a plain expense, and
   await page.getByRole('button', { name: 'Add account' }).click()
   await page.fill('input[placeholder*="HDFC Bank"]', 'Wallet')
   await page.getByRole('button', { name: 'Save' }).click()
-  await page.getByLabel('Account').selectOption({ label: 'HDFC Regalia' })
+  await page.getByRole('combobox', { name: 'Account' }).selectOption({ label: 'HDFC Regalia' })
   await page.fill('input[placeholder="Amount"]', '800')
   await page.fill('input[placeholder="Note (optional)"]', 'Dinner on the card')
   await page.getByRole('button', { name: 'Add', exact: true }).click()

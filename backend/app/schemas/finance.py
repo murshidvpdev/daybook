@@ -12,6 +12,13 @@ class AccountCreate(BaseModel):
     opening_balance: Decimal = Decimal(0)
 
 
+class AccountUpdate(BaseModel):
+    name: str | None = None
+    account_type: str | None = None
+    currency: str | None = None
+    opening_balance: Decimal | None = None
+
+
 class AccountOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
@@ -25,6 +32,11 @@ class AccountOut(BaseModel):
 class CategoryCreate(BaseModel):
     name: str
     kind: str = "expense"
+
+
+class CategoryUpdate(BaseModel):
+    name: str | None = None
+    kind: str | None = None
 
 
 class CategoryOut(BaseModel):
@@ -41,6 +53,15 @@ class TransactionCreate(BaseModel):
     amount: Decimal
     note: str | None = None
     occurred_on: date | None = None  # defaults to today
+
+
+class TransactionUpdate(BaseModel):
+    account_id: UUID | None = None
+    category_id: UUID | None = None
+    kind: str | None = None
+    amount: Decimal | None = None
+    note: str | None = None
+    occurred_on: date | None = None
 
 
 class TransactionOut(BaseModel):
@@ -70,6 +91,19 @@ class CreditCardCreate(BaseModel):
     _validate_due_day = field_validator("due_day")(_validate_due_day)
 
 
+class CreditCardUpdate(BaseModel):
+    name: str | None = None
+    last_four: str | None = None
+    credit_limit: Decimal | None = None
+    due_day: int | None = None
+    opening_balance: Decimal | None = None
+
+    @field_validator("due_day")
+    @classmethod
+    def _validate_due_day_optional(cls, v: int | None) -> int | None:
+        return v if v is None else _validate_due_day(v)
+
+
 class CreditCardOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
@@ -91,6 +125,18 @@ class EMICreate(BaseModel):
     start_date: date | None = None  # first due date; defaults to next occurrence of due_day
 
     _validate_due_day = field_validator("due_day")(_validate_due_day)
+
+
+class EMIUpdate(BaseModel):
+    name: str | None = None
+    monthly_amount: Decimal | None = None
+    total_installments: int | None = None
+    due_day: int | None = None
+
+    @field_validator("due_day")
+    @classmethod
+    def _validate_due_day_optional(cls, v: int | None) -> int | None:
+        return v if v is None else _validate_due_day(v)
 
 
 class EMIOut(BaseModel):
@@ -115,6 +161,18 @@ class SIPCreate(BaseModel):
     start_date: date | None = None
 
     _validate_due_day = field_validator("due_day")(_validate_due_day)
+
+
+class SIPUpdate(BaseModel):
+    name: str | None = None
+    amount: Decimal | None = None
+    due_day: int | None = None
+    is_active: bool | None = None
+
+    @field_validator("due_day")
+    @classmethod
+    def _validate_due_day_optional(cls, v: int | None) -> int | None:
+        return v if v is None else _validate_due_day(v)
 
 
 class SIPOut(BaseModel):
@@ -147,6 +205,15 @@ class LendingCreate(BaseModel):
         if v not in ("lent", "borrowed"):
             raise ValueError("direction must be 'lent' or 'borrowed'")
         return v
+
+
+class LendingUpdate(BaseModel):
+    person_name: str | None = None
+    phone_number: str | None = None
+    amount: Decimal | None = None
+    given_on: date | None = None
+    remind_on: date | None = None
+    note: str | None = None
 
 
 class LendingOut(BaseModel):

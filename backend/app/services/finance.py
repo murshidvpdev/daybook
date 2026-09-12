@@ -17,13 +17,20 @@ from app.models.finance import (
 )
 from app.schemas.finance import (
     AccountCreate,
+    AccountUpdate,
     CategoryCreate,
+    CategoryUpdate,
     CreditCardCreate,
     CreditCardSpendCreate,
+    CreditCardUpdate,
     EMICreate,
+    EMIUpdate,
     LendingCreate,
+    LendingUpdate,
     SIPCreate,
+    SIPUpdate,
     TransactionCreate,
+    TransactionUpdate,
 )
 from app.services.recurring import advance_one_month, compute_next_due_date, sync_due_sips
 
@@ -75,6 +82,37 @@ async def create_account(db: AsyncSession, user_id: UUID, data: AccountCreate) -
     return await _account_out(db, account)
 
 
+async def _get_owned_account(db: AsyncSession, user_id: UUID, account_id: UUID) -> FinancialAccount:
+    account = await db.scalar(
+        select(FinancialAccount).where(FinancialAccount.id == account_id, FinancialAccount.user_id == user_id)
+    )
+    if account is None:
+        raise FinanceNotFound("Account not found")
+    return account
+
+
+async def update_account(db: AsyncSession, user_id: UUID, account_id: UUID, data: AccountUpdate) -> dict:
+    account = await _get_owned_account(db, user_id, account_id)
+    if account.account_type == "credit_card":
+        # A credit card's own dedicated form owns these fields (and keeps its
+        # CreditCard row's due_day/limit in sync) — editing the plain account
+        # underneath it here would let the two drift apart silently.
+        raise FinanceValidationError("Edit this card from the Credit Cards tab instead")
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(account, field, value)
+    await db.commit()
+    await db.refresh(account)
+    return await _account_out(db, account)
+
+
+async def delete_account(db: AsyncSession, user_id: UUID, account_id: UUID) -> None:
+    account = await _get_owned_account(db, user_id, account_id)
+    if account.account_type == "credit_card":
+        raise FinanceValidationError("Delete this card from the Credit Cards tab instead")
+    await db.delete(account)  # cascades to its transactions
+    await db.commit()
+
+
 async def list_categories(db: AsyncSession, user_id: UUID) -> list[TransactionCategory]:
     result = await db.scalars(select(TransactionCategory).where(TransactionCategory.user_id == user_id))
     return list(result.all())
@@ -86,6 +124,34 @@ async def create_category(db: AsyncSession, user_id: UUID, data: CategoryCreate)
     await db.commit()
     await db.refresh(category)
     return category
+
+
+async def _get_owned_category(db: AsyncSession, user_id: UUID, category_id: UUID) -> TransactionCategory:
+    category = await db.scalar(
+        select(TransactionCategory).where(
+            TransactionCategory.id == category_id, TransactionCategory.user_id == user_id
+        )
+    )
+    if category is None:
+        raise FinanceNotFound("Category not found")
+    return category
+
+
+async def update_category(
+    db: AsyncSession, user_id: UUID, category_id: UUID, data: CategoryUpdate
+) -> TransactionCategory:
+    category = await _get_owned_category(db, user_id, category_id)
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(category, field, value)
+    await db.commit()
+    await db.refresh(category)
+    return category
+
+
+async def delete_category(db: AsyncSession, user_id: UUID, category_id: UUID) -> None:
+    category = await _get_owned_category(db, user_id, category_id)
+    await db.delete(category)  # transactions using it fall back to Uncategorized (ON DELETE SET NULL)
+    await db.commit()
 
 
 async def _assert_account_owned(db: AsyncSession, user_id: UUID, account_id: UUID) -> None:
@@ -137,12 +203,33 @@ async def create_transaction(db: AsyncSession, user_id: UUID, data: TransactionC
     return txn
 
 
-async def delete_transaction(db: AsyncSession, user_id: UUID, transaction_id: UUID) -> None:
+async def _get_owned_transaction(db: AsyncSession, user_id: UUID, transaction_id: UUID) -> Transaction:
     txn = await db.scalar(
         select(Transaction).where(Transaction.id == transaction_id, Transaction.user_id == user_id)
     )
     if txn is None:
         raise FinanceNotFound("Transaction not found")
+    return txn
+
+
+async def update_transaction(
+    db: AsyncSession, user_id: UUID, transaction_id: UUID, data: TransactionUpdate
+) -> Transaction:
+    txn = await _get_owned_transaction(db, user_id, transaction_id)
+    updates = data.model_dump(exclude_unset=True)
+    if "account_id" in updates:
+        await _assert_account_owned(db, user_id, updates["account_id"])
+    if "category_id" in updates:
+        await _assert_category_owned(db, user_id, updates["category_id"])
+    for field, value in updates.items():
+        setattr(txn, field, value)
+    await db.commit()
+    await db.refresh(txn)
+    return txn
+
+
+async def delete_transaction(db: AsyncSession, user_id: UUID, transaction_id: UUID) -> None:
+    txn = await _get_owned_transaction(db, user_id, transaction_id)
     await db.delete(txn)
     await db.commit()
 
@@ -219,6 +306,20 @@ async def _get_owned_credit_card(db: AsyncSession, user_id: UUID, card_id: UUID)
     if card is None:
         raise FinanceNotFound("Credit card not found")
     return card
+
+
+async def update_credit_card(db: AsyncSession, user_id: UUID, card_id: UUID, data: CreditCardUpdate) -> dict:
+    card = await _get_owned_credit_card(db, user_id, card_id)
+    updates = data.model_dump(exclude_unset=True)
+    if "name" in updates:
+        card.account.name = updates.pop("name")
+    if "opening_balance" in updates:
+        card.account.opening_balance = updates.pop("opening_balance")
+    for field, value in updates.items():
+        setattr(card, field, value)
+    await db.commit()
+    await db.refresh(card)
+    return await _credit_card_out(db, card)
 
 
 async def delete_credit_card(db: AsyncSession, user_id: UUID, card_id: UUID) -> None:
@@ -387,6 +488,23 @@ async def create_emi(db: AsyncSession, user_id: UUID, data: EMICreate) -> EMI:
     return emi
 
 
+async def update_emi(db: AsyncSession, user_id: UUID, emi_id: UUID, data: EMIUpdate) -> EMI:
+    emi = await db.scalar(select(EMI).where(EMI.id == emi_id, EMI.user_id == user_id))
+    if emi is None:
+        raise FinanceNotFound("EMI not found")
+    updates = data.model_dump(exclude_unset=True)
+    # Changing the due day mid-cycle re-anchors the next occurrence to it —
+    # editing "the 5th" to "the 12th" should move next month's date, not
+    # leave a due date computed from a due_day that's no longer accurate.
+    if "due_day" in updates:
+        emi.next_due_date = compute_next_due_date(updates["due_day"], from_date=emi.next_due_date)
+    for field, value in updates.items():
+        setattr(emi, field, value)
+    await db.commit()
+    await db.refresh(emi)
+    return emi
+
+
 async def delete_emi(db: AsyncSession, user_id: UUID, emi_id: UUID) -> None:
     emi = await db.scalar(select(EMI).where(EMI.id == emi_id, EMI.user_id == user_id))
     if emi is None:
@@ -453,6 +571,20 @@ async def create_sip(db: AsyncSession, user_id: UUID, data: SIPCreate) -> SIP:
     return sip
 
 
+async def update_sip(db: AsyncSession, user_id: UUID, sip_id: UUID, data: SIPUpdate) -> SIP:
+    sip = await db.scalar(select(SIP).where(SIP.id == sip_id, SIP.user_id == user_id))
+    if sip is None:
+        raise FinanceNotFound("SIP not found")
+    updates = data.model_dump(exclude_unset=True)
+    if "due_day" in updates:
+        sip.next_due_date = compute_next_due_date(updates["due_day"], from_date=sip.next_due_date)
+    for field, value in updates.items():
+        setattr(sip, field, value)
+    await db.commit()
+    await db.refresh(sip)
+    return sip
+
+
 async def stop_sip(db: AsyncSession, user_id: UUID, sip_id: UUID) -> None:
     sip = await db.scalar(select(SIP).where(SIP.id == sip_id, SIP.user_id == user_id))
     if sip is None:
@@ -511,6 +643,23 @@ async def get_lending(db: AsyncSession, user_id: UUID, lending_id: UUID) -> Lend
     lending = await db.scalar(select(Lending).where(Lending.id == lending_id, Lending.user_id == user_id))
     if lending is None:
         raise FinanceNotFound("Lending record not found")
+    return lending
+
+
+async def update_lending(db: AsyncSession, user_id: UUID, lending_id: UUID, data: LendingUpdate) -> Lending:
+    lending = await get_lending(db, user_id, lending_id)
+    updates = data.model_dump(exclude_unset=True)
+    if "amount" in updates and lending.transaction_id is not None:
+        # The linked transaction already moved the account balance once at this
+        # amount — correcting a typo here without correcting that would leave
+        # the balance wrong in the opposite direction.
+        txn = await db.get(Transaction, lending.transaction_id)
+        if txn is not None:
+            txn.amount = updates["amount"]
+    for field, value in updates.items():
+        setattr(lending, field, value)
+    await db.commit()
+    await db.refresh(lending)
     return lending
 
 

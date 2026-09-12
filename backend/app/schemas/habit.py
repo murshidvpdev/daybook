@@ -9,6 +9,12 @@ class HabitCreate(BaseModel):
     cadence: str = "daily"
 
 
+class HabitUpdate(BaseModel):
+    name: str | None = None
+    cadence: str | None = None
+    is_archived: bool | None = None
+
+
 class HabitOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID

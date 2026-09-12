@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
 import { useRef, useState } from 'react'
 import { Card } from '../../components/Card'
-import { PlusIcon } from '../../components/Icons'
+import { PencilIcon, PlusIcon } from '../../components/Icons'
 import { api } from '../../lib/api'
 import { isContactPickerSupported, parseVCard, pickContact } from '../../lib/contactPicker'
 import type { Account, Lending, ReminderLinks } from '../../types/api'
@@ -14,6 +14,7 @@ export function LendingTab() {
     queryFn: async () => (await api.get<Lending[]>('/finance/lendings')).data,
   })
   const [showNew, setShowNew] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   const settle = useMutation({
     mutationFn: async (id: string) => (await api.post(`/finance/lendings/${id}/settle`)).data,
@@ -48,14 +49,19 @@ export function LendingTab() {
       )}
 
       <div className="flex flex-col gap-3">
-        {open.map((l) => (
-          <LendingRow
-            key={l.id}
-            lending={l}
-            onSettle={() => settle.mutate(l.id)}
-            onRemove={() => remove.mutate(l.id)}
-          />
-        ))}
+        {open.map((l) =>
+          editingId === l.id ? (
+            <EditLendingForm key={l.id} lending={l} onDone={() => setEditingId(null)} />
+          ) : (
+            <LendingRow
+              key={l.id}
+              lending={l}
+              onSettle={() => settle.mutate(l.id)}
+              onEdit={() => setEditingId(l.id)}
+              onRemove={() => remove.mutate(l.id)}
+            />
+          ),
+        )}
       </div>
 
       {settled.length > 0 && (
@@ -63,7 +69,13 @@ export function LendingTab() {
           <h2 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wide text-[var(--ink-soft)]">Settled</h2>
           <div className="flex flex-col gap-2 opacity-60">
             {settled.map((l) => (
-              <LendingRow key={l.id} lending={l} onSettle={() => {}} onRemove={() => remove.mutate(l.id)} />
+              <LendingRow
+                key={l.id}
+                lending={l}
+                onSettle={() => {}}
+                onEdit={() => setEditingId(l.id)}
+                onRemove={() => remove.mutate(l.id)}
+              />
             ))}
           </div>
         </>
@@ -75,10 +87,12 @@ export function LendingTab() {
 function LendingRow({
   lending,
   onSettle,
+  onEdit,
   onRemove,
 }: {
   lending: Lending
   onSettle: () => void
+  onEdit: () => void
   onRemove: () => void
 }) {
   const { data: reminder } = useQuery({
@@ -105,13 +119,22 @@ function LendingRow({
           </p>
           {lending.note && <p className="mt-1 text-xs text-[var(--ink-soft)]">{lending.note}</p>}
         </div>
-        <p
-          className={`tabular-nums text-lg font-semibold ${
-            lending.direction === 'lent' ? 'text-[var(--accent-ink)]' : 'text-[var(--danger)]'
-          }`}
-        >
-          ₹{Number(lending.amount).toLocaleString('en-IN')}
-        </p>
+        <div className="flex items-center gap-2">
+          <p
+            className={`tabular-nums text-lg font-semibold ${
+              lending.direction === 'lent' ? 'text-[var(--accent-ink)]' : 'text-[var(--danger)]'
+            }`}
+          >
+            ₹{Number(lending.amount).toLocaleString('en-IN')}
+          </p>
+          <button
+            onClick={onEdit}
+            className="text-[var(--ink-soft)] hover:text-[var(--accent-ink)]"
+            aria-label="Edit lending"
+          >
+            <PencilIcon width={15} height={15} />
+          </button>
+        </div>
       </div>
 
       {!lending.is_settled && (
@@ -145,6 +168,115 @@ function LendingRow({
           </button>
         </div>
       )}
+      {lending.is_settled && (
+        <div className="mt-2 flex justify-end">
+          <button onClick={onRemove} className="text-xs text-[var(--ink-soft)] hover:text-[var(--danger)]">
+            Delete
+          </button>
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function EditLendingForm({ lending, onDone }: { lending: Lending; onDone: () => void }) {
+  const queryClient = useQueryClient()
+  const [personName, setPersonName] = useState(lending.person_name)
+  const [phoneNumber, setPhoneNumber] = useState(lending.phone_number ?? '')
+  const [amount, setAmount] = useState(lending.amount)
+  const [givenOn, setGivenOn] = useState(lending.given_on)
+  const [remindOn, setRemindOn] = useState(lending.remind_on ?? '')
+  const [note, setNote] = useState(lending.note ?? '')
+
+  const update = useMutation({
+    mutationFn: async () =>
+      (
+        await api.patch(`/finance/lendings/${lending.id}`, {
+          person_name: personName,
+          phone_number: phoneNumber || null,
+          amount,
+          given_on: givenOn,
+          remind_on: remindOn || null,
+          note: note || null,
+        })
+      ).data,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['finance'] })
+      onDone()
+    },
+  })
+
+  return (
+    <Card>
+      <div className="flex flex-col gap-3">
+        <input
+          placeholder="Friend's name"
+          data-testid="edit-lending-name"
+          value={personName}
+          onChange={(e) => setPersonName(e.target.value)}
+          className="rounded-lg border border-[var(--border)] bg-[var(--paper)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+        />
+        <input
+          placeholder="Phone number (optional)"
+          value={phoneNumber}
+          onChange={(e) => setPhoneNumber(e.target.value)}
+          className="rounded-lg border border-[var(--border)] bg-[var(--paper)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+        />
+        <div className="grid grid-cols-2 gap-2">
+          <input
+            type="number"
+            placeholder="Amount"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            className="rounded-lg border border-[var(--border)] bg-[var(--paper)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+          />
+          <label className="flex flex-col text-xs text-[var(--ink-soft)]">
+            Date
+            <input
+              type="date"
+              value={givenOn}
+              onChange={(e) => setGivenOn(e.target.value)}
+              className="mt-1 rounded-lg border border-[var(--border)] bg-[var(--paper)] px-3 py-1.5 text-sm outline-none focus:border-[var(--accent)]"
+            />
+          </label>
+        </div>
+        <label className="flex flex-col text-xs text-[var(--ink-soft)]">
+          Remind me on
+          <input
+            type="date"
+            value={remindOn}
+            onChange={(e) => setRemindOn(e.target.value)}
+            className="mt-1 rounded-lg border border-[var(--border)] bg-[var(--paper)] px-3 py-1.5 text-sm outline-none focus:border-[var(--accent)]"
+          />
+        </label>
+        <input
+          placeholder="Note (optional)"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          className="rounded-lg border border-[var(--border)] bg-[var(--paper)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+        />
+        {lending.transaction_id && (
+          <p className="text-xs text-[var(--ink-soft)]">
+            This was logged from a card spend — changing the amount also corrects that transaction and the card
+            balance.
+          </p>
+        )}
+        <div className="flex gap-2">
+          <button
+            onClick={() => update.mutate()}
+            disabled={!personName.trim() || !amount || update.isPending}
+            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+          >
+            Save
+          </button>
+          <button onClick={onDone} className="rounded-lg px-4 py-2 text-sm text-[var(--ink-soft)]">
+            Cancel
+          </button>
+        </div>
+        {update.isError && (
+          <p className="text-xs text-[var(--danger)]">Couldn't save those changes — please try again.</p>
+        )}
+      </div>
     </Card>
   )
 }

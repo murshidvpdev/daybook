@@ -6,7 +6,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.fitness import Exercise, ExerciseSet, WorkoutSession
-from app.schemas.fitness import ExerciseCreate, ExerciseSetCreate, WorkoutSessionCreate
+from app.schemas.fitness import (
+    ExerciseCreate,
+    ExerciseSetCreate,
+    ExerciseSetUpdate,
+    ExerciseUpdate,
+    WorkoutSessionCreate,
+    WorkoutSessionUpdate,
+)
 
 
 class FitnessNotFound(Exception):
@@ -24,6 +31,28 @@ async def create_exercise(db: AsyncSession, user_id: UUID, data: ExerciseCreate)
     await db.commit()
     await db.refresh(exercise)
     return exercise
+
+
+async def _get_owned_exercise(db: AsyncSession, user_id: UUID, exercise_id: UUID) -> Exercise:
+    exercise = await db.scalar(select(Exercise).where(Exercise.id == exercise_id, Exercise.user_id == user_id))
+    if exercise is None:
+        raise FitnessNotFound("Exercise not found")
+    return exercise
+
+
+async def update_exercise(db: AsyncSession, user_id: UUID, exercise_id: UUID, data: ExerciseUpdate) -> Exercise:
+    exercise = await _get_owned_exercise(db, user_id, exercise_id)
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(exercise, field, value)
+    await db.commit()
+    await db.refresh(exercise)
+    return exercise
+
+
+async def delete_exercise(db: AsyncSession, user_id: UUID, exercise_id: UUID) -> None:
+    exercise = await _get_owned_exercise(db, user_id, exercise_id)
+    await db.delete(exercise)  # cascades to any sets logged against it
+    await db.commit()
 
 
 async def list_sessions(db: AsyncSession, user_id: UUID, limit: int = 30) -> list[WorkoutSession]:
@@ -62,6 +91,22 @@ async def create_session(db: AsyncSession, user_id: UUID, data: WorkoutSessionCr
     return await _get_owned_session(db, user_id, session.id)
 
 
+async def update_session(
+    db: AsyncSession, user_id: UUID, session_id: UUID, data: WorkoutSessionUpdate
+) -> WorkoutSession:
+    session = await _get_owned_session(db, user_id, session_id)
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(session, field, value)
+    await db.commit()
+    return await _get_owned_session(db, user_id, session_id)
+
+
+async def delete_session(db: AsyncSession, user_id: UUID, session_id: UUID) -> None:
+    session = await _get_owned_session(db, user_id, session_id)
+    await db.delete(session)
+    await db.commit()
+
+
 async def add_set(db: AsyncSession, user_id: UUID, session_id: UUID, data: ExerciseSetCreate) -> WorkoutSession:
     session = await _get_owned_session(db, user_id, session_id)
     exercise = await db.scalar(
@@ -79,6 +124,32 @@ async def add_set(db: AsyncSession, user_id: UUID, session_id: UUID, data: Exerc
             weight_kg=data.weight_kg,
         )
     )
+    await db.commit()
+    return await _get_owned_session(db, user_id, session_id)
+
+
+def _get_owned_set(session: WorkoutSession, set_id: UUID) -> ExerciseSet:
+    exercise_set = next((s for s in session.sets if s.id == set_id), None)
+    if exercise_set is None:
+        raise FitnessNotFound("Set not found")
+    return exercise_set
+
+
+async def update_set(
+    db: AsyncSession, user_id: UUID, session_id: UUID, set_id: UUID, data: ExerciseSetUpdate
+) -> WorkoutSession:
+    session = await _get_owned_session(db, user_id, session_id)
+    exercise_set = _get_owned_set(session, set_id)
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(exercise_set, field, value)
+    await db.commit()
+    return await _get_owned_session(db, user_id, session_id)
+
+
+async def delete_set(db: AsyncSession, user_id: UUID, session_id: UUID, set_id: UUID) -> WorkoutSession:
+    session = await _get_owned_session(db, user_id, session_id)
+    exercise_set = _get_owned_set(session, set_id)
+    await db.delete(exercise_set)
     await db.commit()
     return await _get_owned_session(db, user_id, session_id)
 

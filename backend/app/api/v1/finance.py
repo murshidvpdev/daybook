@@ -9,25 +9,32 @@ from app.schemas.finance import (
     AccountBreakdownItem,
     AccountCreate,
     AccountOut,
+    AccountUpdate,
     CategoryBreakdownItem,
     CategoryCreate,
     CategoryOut,
+    CategoryUpdate,
     CreditCardBillOut,
     CreditCardCreate,
     CreditCardOut,
     CreditCardSpendCreate,
     CreditCardSpendResult,
+    CreditCardUpdate,
     EMICreate,
     EMIOut,
+    EMIUpdate,
     FinanceSummaryOut,
     LendingCreate,
     LendingOut,
+    LendingUpdate,
     ReminderLinksOut,
     SIPCreate,
     SIPOut,
+    SIPUpdate,
     SpendTrendPoint,
     TransactionCreate,
     TransactionOut,
+    TransactionUpdate,
 )
 from app.services import finance as service
 from app.services.reminder import build_reminder_links
@@ -47,6 +54,33 @@ async def create_account(
     return await service.create_account(db, user_id, payload)
 
 
+@router.patch("/accounts/{account_id}", response_model=AccountOut)
+async def update_account(
+    account_id: UUID,
+    payload: AccountUpdate,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await service.update_account(db, user_id, account_id, payload)
+    except service.FinanceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except service.FinanceValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.delete("/accounts/{account_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_account(
+    account_id: UUID, user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)
+):
+    try:
+        await service.delete_account(db, user_id, account_id)
+    except service.FinanceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except service.FinanceValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
 @router.get("/categories", response_model=list[CategoryOut])
 async def list_categories(user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
     return await service.list_categories(db, user_id)
@@ -57,6 +91,29 @@ async def create_category(
     payload: CategoryCreate, user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)
 ):
     return await service.create_category(db, user_id, payload)
+
+
+@router.patch("/categories/{category_id}", response_model=CategoryOut)
+async def update_category(
+    category_id: UUID,
+    payload: CategoryUpdate,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await service.update_category(db, user_id, category_id, payload)
+    except service.FinanceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+@router.delete("/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_category(
+    category_id: UUID, user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)
+):
+    try:
+        await service.delete_category(db, user_id, category_id)
+    except service.FinanceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
 
 @router.get("/transactions", response_model=list[TransactionOut])
@@ -70,6 +127,19 @@ async def create_transaction(
 ):
     try:
         return await service.create_transaction(db, user_id, payload)
+    except service.FinanceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+@router.patch("/transactions/{transaction_id}", response_model=TransactionOut)
+async def update_transaction(
+    transaction_id: UUID,
+    payload: TransactionUpdate,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await service.update_transaction(db, user_id, transaction_id, payload)
     except service.FinanceNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
@@ -97,6 +167,19 @@ async def create_credit_card(
     payload: CreditCardCreate, user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)
 ):
     return await service.create_credit_card(db, user_id, payload)
+
+
+@router.patch("/credit-cards/{card_id}", response_model=CreditCardOut)
+async def update_credit_card(
+    card_id: UUID,
+    payload: CreditCardUpdate,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await service.update_credit_card(db, user_id, card_id, payload)
+    except service.FinanceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
 
 @router.delete("/credit-cards/{card_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -171,6 +254,19 @@ async def create_emi(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
 
+@router.patch("/emis/{emi_id}", response_model=EMIOut)
+async def update_emi(
+    emi_id: UUID,
+    payload: EMIUpdate,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await service.update_emi(db, user_id, emi_id, payload)
+    except service.FinanceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
 @router.delete("/emis/{emi_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_emi(emi_id: UUID, user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
     try:
@@ -209,6 +305,19 @@ async def create_sip(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
 
+@router.patch("/sips/{sip_id}", response_model=SIPOut)
+async def update_sip(
+    sip_id: UUID,
+    payload: SIPUpdate,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await service.update_sip(db, user_id, sip_id, payload)
+    except service.FinanceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
 @router.delete("/sips/{sip_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def stop_sip(sip_id: UUID, user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
     try:
@@ -231,6 +340,19 @@ async def create_lending(
 ):
     try:
         return await service.create_lending(db, user_id, payload)
+    except service.FinanceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+@router.patch("/lendings/{lending_id}", response_model=LendingOut)
+async def update_lending(
+    lending_id: UUID,
+    payload: LendingUpdate,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await service.update_lending(db, user_id, lending_id, payload)
     except service.FinanceNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 

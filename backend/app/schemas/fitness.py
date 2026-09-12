@@ -10,6 +10,11 @@ class ExerciseCreate(BaseModel):
     muscle_group: str | None = None
 
 
+class ExerciseUpdate(BaseModel):
+    name: str | None = None
+    muscle_group: str | None = None
+
+
 class ExerciseOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
@@ -24,6 +29,12 @@ class ExerciseSetCreate(BaseModel):
     weight_kg: Decimal | None = None
 
 
+class ExerciseSetUpdate(BaseModel):
+    set_number: int | None = None
+    reps: int | None = None
+    weight_kg: Decimal | None = None
+
+
 class ExerciseSetOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
@@ -35,6 +46,13 @@ class ExerciseSetOut(BaseModel):
 
 class WorkoutSessionCreate(BaseModel):
     name: str = "Workout"
+    performed_on: date | None = None
+    duration_minutes: int | None = None
+    notes: str | None = None
+
+
+class WorkoutSessionUpdate(BaseModel):
+    name: str | None = None
     performed_on: date | None = None
     duration_minutes: int | None = None
     notes: str | None = None

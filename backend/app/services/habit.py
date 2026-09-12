@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.habit import Habit, HabitCompletion
-from app.schemas.habit import HabitCreate
+from app.schemas.habit import HabitCreate, HabitUpdate
 
 
 class HabitNotFound(Exception):
@@ -25,12 +25,12 @@ async def _get_owned(db: AsyncSession, user_id: UUID, habit_id: UUID) -> Habit:
     return habit
 
 
-async def list_habits(db: AsyncSession, user_id: UUID) -> list[Habit]:
+async def list_habits(db: AsyncSession, user_id: UUID, include_archived: bool = False) -> list[Habit]:
+    conditions = [Habit.user_id == user_id]
+    if not include_archived:
+        conditions.append(Habit.is_archived.is_(False))
     result = await db.scalars(
-        select(Habit)
-        .options(selectinload(Habit.completions))
-        .where(Habit.user_id == user_id, Habit.is_archived.is_(False))
-        .order_by(Habit.created_at)
+        select(Habit).options(selectinload(Habit.completions)).where(*conditions).order_by(Habit.created_at)
     )
     return list(result.all())
 
@@ -46,6 +46,14 @@ async def archive_habit(db: AsyncSession, user_id: UUID, habit_id: UUID) -> None
     habit = await _get_owned(db, user_id, habit_id)
     habit.is_archived = True
     await db.commit()
+
+
+async def update_habit(db: AsyncSession, user_id: UUID, habit_id: UUID, data: HabitUpdate) -> Habit:
+    habit = await _get_owned(db, user_id, habit_id)
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(habit, field, value)
+    await db.commit()
+    return await _get_owned(db, user_id, habit_id)
 
 
 async def toggle_completion(db: AsyncSession, user_id: UUID, habit_id: UUID, on: date | None) -> Habit:

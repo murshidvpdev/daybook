@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
 import { useState } from 'react'
 import { Card } from '../../components/Card'
-import { PlusIcon } from '../../components/Icons'
+import { PencilIcon, PlusIcon } from '../../components/Icons'
 import { api } from '../../lib/api'
 import type { Account, Sip } from '../../types/api'
 
@@ -17,6 +17,7 @@ export function SipsTab() {
     queryFn: async () => (await api.get<Account[]>('/finance/accounts')).data,
   })
   const [showNew, setShowNew] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   const stop = useMutation({
     mutationFn: async (id: string) => api.delete(`/finance/sips/${id}`),
@@ -52,24 +53,108 @@ export function SipsTab() {
       )}
 
       <div className="flex flex-col gap-2">
-        {sips?.map((sip) => (
-          <Card key={sip.id} className="flex items-center justify-between">
-            <div>
-              <p className="font-medium">{sip.name}</p>
-              <p className="text-xs text-[var(--ink-soft)]">
-                ₹{Number(sip.amount).toLocaleString('en-IN')}/mo · next {format(parseISO(sip.next_due_date), 'MMM d')}
-              </p>
-            </div>
-            <button
-              onClick={() => stop.mutate(sip.id)}
-              className="text-xs text-[var(--ink-soft)] hover:text-[var(--danger)]"
-            >
-              Stop
-            </button>
-          </Card>
-        ))}
+        {sips?.map((sip) =>
+          editingId === sip.id ? (
+            <EditSipForm key={sip.id} sip={sip} onDone={() => setEditingId(null)} />
+          ) : (
+            <Card key={sip.id} className="flex items-center justify-between">
+              <div>
+                <p className="font-medium">{sip.name}</p>
+                <p className="text-xs text-[var(--ink-soft)]">
+                  ₹{Number(sip.amount).toLocaleString('en-IN')}/mo · next{' '}
+                  {format(parseISO(sip.next_due_date), 'MMM d')}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setEditingId(sip.id)}
+                  className="text-[var(--ink-soft)] hover:text-[var(--accent-ink)]"
+                  aria-label="Edit SIP"
+                >
+                  <PencilIcon width={15} height={15} />
+                </button>
+                <button
+                  onClick={() => {
+                    if (confirm(`Stop "${sip.name}"?`)) stop.mutate(sip.id)
+                  }}
+                  className="text-xs text-[var(--ink-soft)] hover:text-[var(--danger)]"
+                >
+                  Stop
+                </button>
+              </div>
+            </Card>
+          ),
+        )}
       </div>
     </div>
+  )
+}
+
+function EditSipForm({ sip, onDone }: { sip: Sip; onDone: () => void }) {
+  const queryClient = useQueryClient()
+  const [name, setName] = useState(sip.name)
+  const [amount, setAmount] = useState(sip.amount)
+  const [dueDay, setDueDay] = useState(String(sip.due_day))
+
+  const update = useMutation({
+    mutationFn: async () =>
+      (
+        await api.patch(`/finance/sips/${sip.id}`, {
+          name,
+          amount,
+          due_day: Number(dueDay),
+        })
+      ).data,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['finance'] })
+      onDone()
+    },
+  })
+
+  return (
+    <Card>
+      <div className="flex flex-col gap-3">
+        <input
+          data-testid="edit-sip-name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="rounded-lg border border-[var(--border)] bg-[var(--paper)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+        />
+        <div className="grid grid-cols-2 gap-2">
+          <input
+            type="number"
+            placeholder="₹/month"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            className="rounded-lg border border-[var(--border)] bg-[var(--paper)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+          />
+          <input
+            type="number"
+            placeholder="Due day"
+            min={1}
+            max={31}
+            value={dueDay}
+            onChange={(e) => setDueDay(e.target.value)}
+            className="rounded-lg border border-[var(--border)] bg-[var(--paper)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+          />
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => update.mutate()}
+            disabled={!name.trim() || !amount || update.isPending}
+            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+          >
+            Save
+          </button>
+          <button onClick={onDone} className="rounded-lg px-4 py-2 text-sm text-[var(--ink-soft)]">
+            Cancel
+          </button>
+        </div>
+        {update.isError && (
+          <p className="text-xs text-[var(--danger)]">Couldn't save those changes — please try again.</p>
+        )}
+      </div>
+    </Card>
   )
 }
 
