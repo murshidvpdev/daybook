@@ -1,6 +1,5 @@
 # Cloudflare Pages edge proxy: keeps the frontend and API on the same origin
 # from the browser's point of view, so the refresh-token cookie stays a normal
 # same-site cookie instead of needing SameSite=None (which iOS Safari treats
-# unreliably for cross-site cookies). Update the target if your Render service
-# ends up with a different name than "daybook-api".
-/api/*  https://daybook-api.onrender.com/api/:splat  200
+# unreliably for cross-site cookies).
+/api/*  https://daybook-5dls.onrender.com/api/:splat  200

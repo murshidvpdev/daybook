@@ -50,7 +50,7 @@ postgresql+asyncpg://user:pass@ep-xxx.neon.tech/daybook?ssl=require
      ```
    - `CORS_ORIGINS` → `["https://daybook.pages.dev"]` (or whatever your actual Cloudflare Pages URL turns out to be — you can update this after step 4)
 5. Deploy. Render runs `alembic upgrade head` automatically before each deploy (that's the `preDeployCommand` in `render.yaml`).
-6. Note the URL Render gives your service (e.g. `https://daybook-api.onrender.com`). If it's not exactly that, update `frontend/public/_redirects` to match before deploying the frontend.
+6. Note the URL Render gives your service. **Live at `https://daybook-5dls.onrender.com`** — already set in `frontend/public/_redirects`.
 
 ## 4. Frontend — Cloudflare Pages
 
