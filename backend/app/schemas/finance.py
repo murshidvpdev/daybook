@@ -29,6 +29,16 @@ class AccountOut(BaseModel):
     current_balance: Decimal
 
 
+class BalanceAdjustment(BaseModel):
+    """What the account should show right now — e.g. copied from a banking app —
+    not a delta. The service computes the difference itself and posts a single
+    transaction for it, so the change stays auditable instead of silently
+    rewriting opening_balance."""
+
+    actual_balance: Decimal
+    note: str | None = None
+
+
 class CategoryCreate(BaseModel):
     name: str
     kind: str = "expense"

@@ -8,15 +8,18 @@ import { getLastCategory, setLastCategory } from '../../lib/lastCategory'
 import type { CreditCard, CreditCardBill, CreditCardSpendResult } from '../../types/api'
 import { CategoryPicker } from './CategoryPicker'
 import { dueBadge } from './dueBadge'
+import { useSyncFinanceBalances } from './useSyncFinanceBalances'
 
 type Panel = 'spend' | 'bills' | 'edit' | null
 
 export function CreditCardsTab() {
   const queryClient = useQueryClient()
-  const { data: cards, isLoading } = useQuery({
+  const cardsQuery = useQuery({
     queryKey: ['finance', 'credit-cards'],
     queryFn: async () => (await api.get<CreditCard[]>('/finance/credit-cards')).data,
   })
+  const { data: cards, isLoading } = cardsQuery
+  useSyncFinanceBalances(cardsQuery.dataUpdatedAt)
   const [showNew, setShowNew] = useState(false)
   const [openPanel, setOpenPanel] = useState<{ cardId: string; panel: Panel }>({ cardId: '', panel: null })
 

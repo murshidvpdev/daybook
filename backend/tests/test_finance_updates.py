@@ -74,6 +74,86 @@ async def test_delete_credit_card_backed_account_is_blocked(client: AsyncClient,
     assert resp.status_code == 400
 
 
+async def test_adjust_balance_posts_expense_when_actual_is_lower(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    account = await _create_account(client, auth_headers)  # opening_balance 1000, no transactions
+    resp = await client.post(
+        f"/api/v1/finance/accounts/{account['id']}/adjust-balance",
+        headers=auth_headers,
+        json={"actual_balance": "750", "note": "Matched bank app"},
+    )
+    assert resp.status_code == 200
+    assert float(resp.json()["current_balance"]) == 750.0
+
+    txns = await client.get("/api/v1/finance/transactions", headers=auth_headers)
+    adjustment = next(t for t in txns.json() if t["note"] == "Matched bank app")
+    assert adjustment["kind"] == "expense"
+    assert float(adjustment["amount"]) == 250.0
+
+
+async def test_adjust_balance_posts_income_when_actual_is_higher(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    account = await _create_account(client, auth_headers)  # opening_balance 1000
+    resp = await client.post(
+        f"/api/v1/finance/accounts/{account['id']}/adjust-balance",
+        headers=auth_headers,
+        json={"actual_balance": "1500"},
+    )
+    assert resp.status_code == 200
+    assert float(resp.json()["current_balance"]) == 1500.0
+
+    txns = await client.get("/api/v1/finance/transactions", headers=auth_headers)
+    adjustment = next(t for t in txns.json() if t["note"] == "Balance adjustment")
+    assert adjustment["kind"] == "income"
+    assert float(adjustment["amount"]) == 500.0
+
+
+async def test_adjust_balance_noop_when_already_correct(client: AsyncClient, auth_headers: dict[str, str]) -> None:
+    account = await _create_account(client, auth_headers)  # opening_balance 1000
+    resp = await client.post(
+        f"/api/v1/finance/accounts/{account['id']}/adjust-balance",
+        headers=auth_headers,
+        json={"actual_balance": "1000"},
+    )
+    assert resp.status_code == 200
+    txns = await client.get("/api/v1/finance/transactions", headers=auth_headers)
+    assert txns.json() == []
+
+
+async def test_adjust_balance_reflects_in_total_balance(client: AsyncClient, auth_headers: dict[str, str]) -> None:
+    account = await _create_account(client, auth_headers)
+    await client.post(
+        f"/api/v1/finance/accounts/{account['id']}/adjust-balance",
+        headers=auth_headers,
+        json={"actual_balance": "2200"},
+    )
+    summary = await client.get("/api/v1/finance/analytics/summary", headers=auth_headers)
+    assert float(summary.json()["total_balance"]) == 2200.0
+
+
+async def test_adjust_balance_rejects_credit_card_account(client: AsyncClient, auth_headers: dict[str, str]) -> None:
+    card = await _create_credit_card(client, auth_headers)
+    resp = await client.post(
+        f"/api/v1/finance/accounts/{card['account_id']}/adjust-balance",
+        headers=auth_headers,
+        json={"actual_balance": "500"},
+    )
+    assert resp.status_code == 400
+
+
+async def test_adjust_balance_rejects_other_users_account(client: AsyncClient, auth_headers: dict[str, str]) -> None:
+    account = await _create_account(client, auth_headers)
+    eve_headers = await _other_user_headers(client, "adjust-balance-eve@example.com")
+    resp = await client.post(
+        f"/api/v1/finance/accounts/{account['id']}/adjust-balance",
+        headers=eve_headers,
+        json={"actual_balance": "1"},
+    )
+    assert resp.status_code == 404
+
+
 # --- Categories -----------------------------------------------------------------
 
 

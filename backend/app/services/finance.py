@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -18,6 +19,7 @@ from app.models.finance import (
 from app.schemas.finance import (
     AccountCreate,
     AccountUpdate,
+    BalanceAdjustment,
     CategoryCreate,
     CategoryUpdate,
     CreditCardCreate,
@@ -111,6 +113,33 @@ async def delete_account(db: AsyncSession, user_id: UUID, account_id: UUID) -> N
         raise FinanceValidationError("Delete this card from the Credit Cards tab instead")
     await db.delete(account)  # cascades to its transactions
     await db.commit()
+
+
+async def adjust_account_balance(db: AsyncSession, user_id: UUID, account_id: UUID, data: BalanceAdjustment) -> dict:
+    """Reconciles the account to whatever the user says it actually holds right
+    now, by posting a single transaction for the difference — never by
+    rewriting opening_balance, which would silently distort every past
+    balance the app has already shown."""
+    account = await _get_owned_account(db, user_id, account_id)
+    if account.account_type == "credit_card":
+        raise FinanceValidationError("Adjust this card's balance from the Credit Cards tab instead")
+
+    income, expense = await _income_expense_totals(db, account.id)
+    current_balance = account.opening_balance + Decimal(str(income)) - Decimal(str(expense))
+    diff = data.actual_balance - current_balance
+    if diff != 0:
+        db.add(
+            Transaction(
+                user_id=user_id,
+                account_id=account.id,
+                kind="income" if diff > 0 else "expense",
+                amount=abs(diff),
+                note=data.note or "Balance adjustment",
+                occurred_on=date.today(),
+            )
+        )
+        await db.commit()
+    return await _account_out(db, account)
 
 
 async def list_categories(db: AsyncSession, user_id: UUID) -> list[TransactionCategory]:

@@ -9,6 +9,7 @@ import { CategoryPicker } from './CategoryPicker'
 import { dueBadge } from './dueBadge'
 import { FinanceSummaryPanel } from './FinanceSummaryPanel'
 import { SpendAnalytics } from './SpendAnalytics'
+import { useSyncFinanceBalances } from './useSyncFinanceBalances'
 
 export function OverviewTab({ onOpenCreditCards }: { onOpenCreditCards: () => void }) {
   const queryClient = useQueryClient()
@@ -16,26 +17,58 @@ export function OverviewTab({ onOpenCreditCards }: { onOpenCreditCards: () => vo
     queryKey: ['finance', 'accounts'],
     queryFn: async () => (await api.get<Account[]>('/finance/accounts')).data,
   })
-  const { data: creditCards } = useQuery({
+  const creditCardsQuery = useQuery({
     queryKey: ['finance', 'credit-cards'],
     queryFn: async () => (await api.get<CreditCard[]>('/finance/credit-cards')).data,
   })
-  const { data: transactions, isLoading: loadingTxns } = useQuery({
+  const creditCards = creditCardsQuery.data
+  const transactionsQuery = useQuery({
     queryKey: ['finance', 'transactions'],
     queryFn: async () => (await api.get<Transaction[]>('/finance/transactions')).data,
   })
+  const { data: transactions, isLoading: loadingTxns } = transactionsQuery
+  // Both of these lists can silently post a backdated SIP transaction as a
+  // side effect of the GET itself — keep the accounts/summary totals honest
+  // whenever that happens instead of waiting for an unrelated mutation.
+  useSyncFinanceBalances(transactionsQuery.dataUpdatedAt)
+  useSyncFinanceBalances(creditCardsQuery.dataUpdatedAt)
   const [showAddAccount, setShowAddAccount] = useState(false)
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null)
+  const [adjustingAccountId, setAdjustingAccountId] = useState<string | null>(null)
   const [editingTxnId, setEditingTxnId] = useState<string | null>(null)
   const [showCategories, setShowCategories] = useState(false)
 
   const deleteAccount = useMutation({
     mutationFn: async (id: string) => api.delete(`/finance/accounts/${id}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['finance'] }),
+    // The row disappearing immediately is what makes a delete feel real —
+    // the balance totals still come from the next invalidated fetch, since
+    // recomputing them client-side would mean duplicating the credit-card /
+    // EMI / SIP branching the backend already does correctly.
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: ['finance', 'accounts'] })
+      const prev = queryClient.getQueryData<Account[]>(['finance', 'accounts'])
+      queryClient.setQueryData<Account[]>(['finance', 'accounts'], (old) => old?.filter((a) => a.id !== id))
+      return { prev }
+    },
+    onError: (_err, _id, context) => {
+      if (context?.prev) queryClient.setQueryData(['finance', 'accounts'], context.prev)
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['finance'] }),
   })
   const deleteTransaction = useMutation({
     mutationFn: async (id: string) => api.delete(`/finance/transactions/${id}`),
-    onSuccess: () => {
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: ['finance', 'transactions'] })
+      const prev = queryClient.getQueryData<Transaction[]>(['finance', 'transactions'])
+      queryClient.setQueryData<Transaction[]>(['finance', 'transactions'], (old) =>
+        old?.filter((t) => t.id !== id),
+      )
+      return { prev }
+    },
+    onError: (_err, _id, context) => {
+      if (context?.prev) queryClient.setQueryData(['finance', 'transactions'], context.prev)
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['finance'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard', 'today'] })
     },
@@ -109,6 +142,13 @@ export function OverviewTab({ onOpenCreditCards }: { onOpenCreditCards: () => vo
                 </div>
               )
             }
+            if (adjustingAccountId === a.id) {
+              return (
+                <div key={a.id} className="sm:col-span-2">
+                  <AdjustBalanceForm account={a} onDone={() => setAdjustingAccountId(null)} />
+                </div>
+              )
+            }
             return (
               <Card key={a.id} className="flex items-center justify-between py-3">
                 <div>
@@ -116,9 +156,13 @@ export function OverviewTab({ onOpenCreditCards }: { onOpenCreditCards: () => vo
                   <p className="text-xs capitalize text-[var(--ink-soft)]">{a.account_type}</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="tabular-nums text-base font-semibold">
+                  <button
+                    onClick={() => setAdjustingAccountId(a.id)}
+                    className="tabular-nums text-base font-semibold hover:text-[var(--accent-ink)]"
+                    title="Not right? Tap to set the actual balance"
+                  >
                     ₹{Number(a.current_balance).toLocaleString('en-IN')}
-                  </span>
+                  </button>
                   <button
                     onClick={() => setEditingAccountId(a.id)}
                     className="text-[var(--ink-soft)] hover:text-[var(--accent-ink)]"
@@ -220,6 +264,96 @@ export function OverviewTab({ onOpenCreditCards }: { onOpenCreditCards: () => vo
         {showCategories && <ManageCategories />}
       </div>
     </div>
+  )
+}
+
+function AdjustBalanceForm({ account, onDone }: { account: Account; onDone: () => void }) {
+  const queryClient = useQueryClient()
+  const [actualBalance, setActualBalance] = useState(account.current_balance)
+  const [note, setNote] = useState('')
+
+  const adjust = useMutation({
+    mutationFn: async () =>
+      (
+        await api.post(`/finance/accounts/${account.id}/adjust-balance`, {
+          actual_balance: actualBalance,
+          note: note || null,
+        })
+      ).data,
+    // Optimistic: the whole point is that this should feel instant, not like
+    // a page refresh — update the accounts list and the summary tiles right
+    // away, then reconcile with the server's real numbers once it replies.
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ['finance', 'accounts'] })
+      await queryClient.cancelQueries({ queryKey: ['finance', 'analytics', 'summary'] })
+      const prevAccounts = queryClient.getQueryData<Account[]>(['finance', 'accounts'])
+      const prevSummary = queryClient.getQueryData<{ total_balance: string; net_worth: string }>([
+        'finance',
+        'analytics',
+        'summary',
+      ])
+      const delta = Number(actualBalance) - Number(account.current_balance)
+      queryClient.setQueryData<Account[]>(['finance', 'accounts'], (old) =>
+        old?.map((a) => (a.id === account.id ? { ...a, current_balance: actualBalance } : a)),
+      )
+      queryClient.setQueryData(['finance', 'analytics', 'summary'], (old: typeof prevSummary) =>
+        old
+          ? {
+              ...old,
+              total_balance: String(Number(old.total_balance) + delta),
+              net_worth: String(Number(old.net_worth) + delta),
+            }
+          : old,
+      )
+      return { prevAccounts, prevSummary }
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.prevAccounts) queryClient.setQueryData(['finance', 'accounts'], context.prevAccounts)
+      if (context?.prevSummary) queryClient.setQueryData(['finance', 'analytics', 'summary'], context.prevSummary)
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['finance'] })
+    },
+    onSuccess: onDone,
+  })
+
+  return (
+    <Card>
+      <p className="mb-2 text-sm font-medium">What does {account.name} actually hold right now?</p>
+      <div className="flex flex-wrap items-end gap-2">
+        <input
+          type="number"
+          inputMode="decimal"
+          data-testid="adjust-balance-amount"
+          value={actualBalance}
+          onChange={(e) => setActualBalance(e.target.value)}
+          className="w-36 rounded-lg border border-[var(--border)] bg-[var(--paper)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+        />
+        <input
+          placeholder="Note (optional)"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          className="min-w-32 flex-1 rounded-lg border border-[var(--border)] bg-[var(--paper)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+        />
+        <button
+          onClick={() => adjust.mutate()}
+          disabled={!actualBalance || adjust.isPending}
+          className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+        >
+          Save
+        </button>
+        <button onClick={onDone} className="rounded-lg px-3 py-2 text-sm text-[var(--ink-soft)]">
+          Cancel
+        </button>
+      </div>
+      <p className="mt-2 text-xs text-[var(--ink-soft)]">
+        This posts a single "Balance adjustment" transaction for the difference — your history stays intact, it's
+        just corrected going forward.
+      </p>
+      {adjust.isError && (
+        <p className="mt-2 text-xs text-[var(--danger)]">Couldn't save that — please try again.</p>
+      )}
+    </Card>
   )
 }
 
@@ -560,7 +694,7 @@ function NewTransactionForm({ accounts }: { accounts: Account[] }) {
   const create = useMutation({
     mutationFn: async () =>
       (
-        await api.post('/finance/transactions', {
+        await api.post<Transaction>('/finance/transactions', {
           account_id: accountId,
           kind,
           amount,
@@ -568,10 +702,36 @@ function NewTransactionForm({ accounts }: { accounts: Account[] }) {
           category_id: categoryId,
         })
       ).data,
+    // Drop it into the list immediately with a temp id — the real row (and
+    // the account balance it moved) arrives a moment later via invalidation,
+    // but the user isn't staring at a spinner for a form that already "worked".
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ['finance', 'transactions'] })
+      const prev = queryClient.getQueryData<Transaction[]>(['finance', 'transactions'])
+      const optimistic: Transaction = {
+        id: `optimistic-${crypto.randomUUID()}`,
+        account_id: accountId,
+        category_id: categoryId,
+        kind,
+        amount,
+        note: note || null,
+        occurred_on: new Date().toISOString().slice(0, 10),
+      }
+      queryClient.setQueryData<Transaction[]>(['finance', 'transactions'], (old) => [
+        optimistic,
+        ...(old ?? []),
+      ])
+      return { prev }
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.prev) queryClient.setQueryData(['finance', 'transactions'], context.prev)
+    },
     onSuccess: () => {
       setAmount('')
       setNote('')
       setLastCategory(kind, categoryId)
+    },
+    onSettled: () => {
       // Broad invalidation on purpose: a new transaction can move the account
       // balance and both analytics charts, not just the transaction list.
       queryClient.invalidateQueries({ queryKey: ['finance'] })

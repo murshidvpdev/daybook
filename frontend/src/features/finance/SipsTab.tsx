@@ -5,13 +5,16 @@ import { Card } from '../../components/Card'
 import { PencilIcon, PlusIcon } from '../../components/Icons'
 import { api } from '../../lib/api'
 import type { Account, Sip } from '../../types/api'
+import { useSyncFinanceBalances } from './useSyncFinanceBalances'
 
 export function SipsTab() {
   const queryClient = useQueryClient()
-  const { data: sips, isLoading } = useQuery({
+  const sipsQuery = useQuery({
     queryKey: ['finance', 'sips'],
     queryFn: async () => (await api.get<Sip[]>('/finance/sips')).data,
   })
+  const { data: sips, isLoading } = sipsQuery
+  useSyncFinanceBalances(sipsQuery.dataUpdatedAt)
   const { data: accounts } = useQuery({
     queryKey: ['finance', 'accounts'],
     queryFn: async () => (await api.get<Account[]>('/finance/accounts')).data,
