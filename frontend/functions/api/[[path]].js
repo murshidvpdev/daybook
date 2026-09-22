@@ -10,7 +10,9 @@
 // migration in progress) while CloudFront is blocked on AWS account
 // verification. Revert to "https://daybook-5dls.onrender.com" once the
 // S3 + CloudFront setup is finished — this is a stand-in, not the final home.
-const BACKEND_ORIGIN = "http://65.1.218.176";
+// Must be a hostname, not a raw IP — Cloudflare's fetch() rejects direct-IP
+// origins with "error code: 1003".
+const BACKEND_ORIGIN = "http://ec2-65-1-218-176.ap-south-1.compute.amazonaws.com";
 
 export async function onRequest(context) {
   const url = new URL(context.request.url);
