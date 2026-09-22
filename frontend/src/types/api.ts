@@ -181,3 +181,27 @@ export interface TodaySummary {
   finance: { spent_today: number; currency: string }
   fitness: { last_workout_on: string | null; logged_today: boolean }
 }
+
+export interface DayReport {
+  report_date: string
+  routine_items_done: { routine_name: string; item_title: string }[]
+  routine_items_total: number
+  habits_done: { name: string }[]
+  habits_total: number
+  transactions: {
+    account_name: string
+    category_name: string | null
+    kind: 'income' | 'expense'
+    amount: string
+    note: string | null
+  }[]
+  total_spent: string
+  total_income: string
+  workouts: {
+    name: string
+    duration_minutes: number | null
+    notes: string | null
+    sets: { exercise_name: string; reps: number; weight_kg: string | null }[]
+  }[]
+  lendings: { person_name: string; direction: 'lent' | 'borrowed'; amount: string }[]
+}

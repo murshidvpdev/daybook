@@ -56,7 +56,7 @@ test('register, log across every domain, dashboard reflects it', async ({ page }
   await page.getByRole('link', { name: 'Today' }).click()
   await expect(page.getByText('1/1').first()).toBeVisible()
   await expect(page.getByText('₹450')).toBeVisible()
-  await expect(page.getByText('Logged')).toBeVisible()
+  await expect(page.getByText('Logged', { exact: true })).toBeVisible()
 })
 
 test('bottom nav renders correctly at iPhone width', async ({ page }) => {

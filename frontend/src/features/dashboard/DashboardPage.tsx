@@ -5,6 +5,7 @@ import type { TodaySummary } from '../../types/api'
 import { StatCard } from '../../components/Card'
 import { useAuth } from '../../auth/AuthContext'
 import { EmiDueBanner } from '../finance/EmiDueBanner'
+import { DayReportCard } from './DayReportCard'
 
 export function DashboardPage() {
   const { user } = useAuth()
@@ -47,6 +48,8 @@ export function DashboardPage() {
           <FocusNote data={data} />
         </>
       )}
+
+      <DayReportCard />
     </div>
   )
 }
