@@ -6,7 +6,11 @@
 // ever talks to one origin (this Pages domain), so the refresh-token cookie
 // stays a normal same-site cookie rather than needing SameSite=None, which
 // iOS Safari treats unreliably for cross-site cookies.
-const BACKEND_ORIGIN = "https://daybook-5dls.onrender.com";
+// TEMPORARY: pointed at the AWS EC2 backend (see ARCHITECTURE.md / the AWS
+// migration in progress) while CloudFront is blocked on AWS account
+// verification. Revert to "https://daybook-5dls.onrender.com" once the
+// S3 + CloudFront setup is finished — this is a stand-in, not the final home.
+const BACKEND_ORIGIN = "http://65.1.218.176";
 
 export async function onRequest(context) {
   const url = new URL(context.request.url);
