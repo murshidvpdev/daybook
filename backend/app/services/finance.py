@@ -13,6 +13,7 @@ from app.models.finance import (
     CreditCardBill,
     FinancialAccount,
     Lending,
+    LendingPayment,
     Transaction,
     TransactionCategory,
 )
@@ -28,6 +29,7 @@ from app.schemas.finance import (
     EMICreate,
     EMIUpdate,
     LendingCreate,
+    LendingPaymentCreate,
     LendingUpdate,
     SIPCreate,
     SIPUpdate,
@@ -362,7 +364,7 @@ async def delete_credit_card(db: AsyncSession, user_id: UUID, card_id: UUID) -> 
 
 async def spend_on_credit_card(
     db: AsyncSession, user_id: UUID, card_id: UUID, data: CreditCardSpendCreate
-) -> tuple[Transaction, Lending | None]:
+) -> tuple[Transaction, dict | None]:
     """Logs a card charge and, when it was actually money handed to a friend rather
     than a purchase, creates the matching receivable in the same call — the two
     facts (I spent this / someone owes me this) are recorded together instead of
@@ -400,9 +402,10 @@ async def spend_on_credit_card(
 
     await db.commit()
     await db.refresh(txn)
+    lending_out = None
     if lending is not None:
-        await db.refresh(lending)
-    return txn, lending
+        lending_out = await _lending_out(db, await get_lending(db, user_id, lending.id))
+    return txn, lending_out
 
 
 # --- Credit card bills -------------------------------------------------------
@@ -625,16 +628,54 @@ async def stop_sip(db: AsyncSession, user_id: UUID, sip_id: UUID) -> None:
 # --- Lending (friends) ------------------------------------------------------
 
 
-async def list_lendings(db: AsyncSession, user_id: UUID) -> list[Lending]:
+async def _lending_out(db: AsyncSession, lending: Lending) -> dict:
+    payments = sorted(lending.payments, key=lambda p: p.paid_on)
+    amount_paid = sum((Decimal(str(p.amount)) for p in payments), Decimal(0))
+    payment_dicts = []
+    for p in payments:
+        account_id = None
+        if p.transaction_id is not None:
+            txn = await db.get(Transaction, p.transaction_id)
+            account_id = txn.account_id if txn is not None else None
+        payment_dicts.append(
+            {
+                "id": p.id,
+                "amount": p.amount,
+                "paid_on": p.paid_on,
+                "note": p.note,
+                "account_id": account_id,
+                "transaction_id": p.transaction_id,
+            }
+        )
+    return {
+        "id": lending.id,
+        "person_name": lending.person_name,
+        "phone_number": lending.phone_number,
+        "direction": lending.direction,
+        "amount": lending.amount,
+        "given_on": lending.given_on,
+        "remind_on": lending.remind_on,
+        "note": lending.note,
+        "is_settled": lending.is_settled,
+        "settled_on": lending.settled_on,
+        "transaction_id": lending.transaction_id,
+        "amount_paid": amount_paid,
+        "outstanding": Decimal(str(lending.amount)) - amount_paid,
+        "payments": payment_dicts,
+    }
+
+
+async def list_lendings(db: AsyncSession, user_id: UUID) -> list[dict]:
     result = await db.scalars(
         select(Lending)
+        .options(selectinload(Lending.payments))
         .where(Lending.user_id == user_id)
         .order_by(Lending.is_settled, Lending.remind_on.nulls_last(), Lending.given_on.desc())
     )
-    return list(result.all())
+    return [await _lending_out(db, lending) for lending in result.all()]
 
 
-async def create_lending(db: AsyncSession, user_id: UUID, data: LendingCreate) -> Lending:
+async def create_lending(db: AsyncSession, user_id: UUID, data: LendingCreate) -> dict:
     given_on = data.given_on or date.today()
     txn = None
     if data.account_id is not None:
@@ -664,47 +705,131 @@ async def create_lending(db: AsyncSession, user_id: UUID, data: LendingCreate) -
     )
     db.add(lending)
     await db.commit()
-    await db.refresh(lending)
-    return lending
+    return await _lending_out(db, await get_lending(db, user_id, lending.id))
 
 
 async def get_lending(db: AsyncSession, user_id: UUID, lending_id: UUID) -> Lending:
-    lending = await db.scalar(select(Lending).where(Lending.id == lending_id, Lending.user_id == user_id))
+    lending = await db.scalar(
+        select(Lending)
+        .options(selectinload(Lending.payments))
+        .where(Lending.id == lending_id, Lending.user_id == user_id)
+        .execution_options(populate_existing=True)
+    )
     if lending is None:
         raise FinanceNotFound("Lending record not found")
     return lending
 
 
-async def update_lending(db: AsyncSession, user_id: UUID, lending_id: UUID, data: LendingUpdate) -> Lending:
+async def update_lending(db: AsyncSession, user_id: UUID, lending_id: UUID, data: LendingUpdate) -> dict:
     lending = await get_lending(db, user_id, lending_id)
     updates = data.model_dump(exclude_unset=True)
-    if "amount" in updates and lending.transaction_id is not None:
-        # The linked transaction already moved the account balance once at this
-        # amount — correcting a typo here without correcting that would leave
-        # the balance wrong in the opposite direction.
-        txn = await db.get(Transaction, lending.transaction_id)
-        if txn is not None:
-            txn.amount = updates["amount"]
+    if "amount" in updates:
+        already_paid = sum((Decimal(str(p.amount)) for p in lending.payments), Decimal(0))
+        if updates["amount"] < already_paid:
+            raise FinanceValidationError(
+                f"Can't set the amount below what's already been paid back (₹{already_paid:,.2f})"
+            )
+        if lending.transaction_id is not None:
+            # The linked transaction already moved the account balance once at this
+            # amount — correcting a typo here without correcting that would leave
+            # the balance wrong in the opposite direction.
+            txn = await db.get(Transaction, lending.transaction_id)
+            if txn is not None:
+                txn.amount = updates["amount"]
     for field, value in updates.items():
         setattr(lending, field, value)
     await db.commit()
-    await db.refresh(lending)
-    return lending
+    return await _lending_out(db, await get_lending(db, user_id, lending_id))
 
 
-async def settle_lending(db: AsyncSession, user_id: UUID, lending_id: UUID) -> Lending:
+async def settle_lending(db: AsyncSession, user_id: UUID, lending_id: UUID) -> dict:
     lending = await get_lending(db, user_id, lending_id)
     lending.is_settled = True
     lending.settled_on = date.today()
     await db.commit()
-    await db.refresh(lending)
-    return lending
+    return await _lending_out(db, lending)
 
 
 async def delete_lending(db: AsyncSession, user_id: UUID, lending_id: UUID) -> None:
     lending = await get_lending(db, user_id, lending_id)
     await db.delete(lending)
     await db.commit()
+
+
+async def add_lending_payment(
+    db: AsyncSession, user_id: UUID, lending_id: UUID, data: LendingPaymentCreate
+) -> dict:
+    lending = await get_lending(db, user_id, lending_id)
+    if data.amount <= 0:
+        raise FinanceValidationError("Payment amount must be positive")
+
+    already_paid = sum((Decimal(str(p.amount)) for p in lending.payments), Decimal(0))
+    outstanding = Decimal(str(lending.amount)) - already_paid
+    if data.amount > outstanding:
+        raise FinanceValidationError(f"That's more than what's outstanding (₹{outstanding:,.2f} left)")
+
+    paid_on = data.paid_on or date.today()
+    txn = None
+    if data.account_id is not None:
+        await _assert_account_owned(db, user_id, data.account_id)
+        txn = Transaction(
+            user_id=user_id,
+            account_id=data.account_id,
+            # A repayment moves money the opposite way the original lending did:
+            # money coming back to you ("lent") is income; paying back what you
+            # owe ("borrowed") is an expense.
+            kind="income" if lending.direction == "lent" else "expense",
+            amount=data.amount,
+            note=data.note
+            or f"{'Repayment from' if lending.direction == 'lent' else 'Repayment to'} {lending.person_name}",
+            occurred_on=paid_on,
+        )
+        db.add(txn)
+        await db.flush()
+
+    db.add(
+        LendingPayment(
+            user_id=user_id,
+            lending_id=lending.id,
+            amount=data.amount,
+            paid_on=paid_on,
+            note=data.note,
+            transaction_id=txn.id if txn else None,
+        )
+    )
+
+    if already_paid + data.amount >= Decimal(str(lending.amount)):
+        lending.is_settled = True
+        lending.settled_on = paid_on
+
+    await db.commit()
+    return await _lending_out(db, await get_lending(db, user_id, lending_id))
+
+
+async def delete_lending_payment(db: AsyncSession, user_id: UUID, lending_id: UUID, payment_id: UUID) -> dict:
+    lending = await get_lending(db, user_id, lending_id)
+    payment = next((p for p in lending.payments if p.id == payment_id), None)
+    if payment is None:
+        raise FinanceNotFound("Payment not found")
+
+    # A payment and its transaction were entered together as one action —
+    # undoing the payment should undo the balance effect too, unlike deleting
+    # the parent Lending, which deliberately leaves its transaction behind.
+    if payment.transaction_id is not None:
+        txn = await db.get(Transaction, payment.transaction_id)
+        if txn is not None:
+            await db.delete(txn)
+
+    remaining_after = sum(
+        (Decimal(str(p.amount)) for p in lending.payments if p.id != payment_id), Decimal(0)
+    )
+    await db.delete(payment)
+    if remaining_after < Decimal(str(lending.amount)) and lending.is_settled:
+        lending.is_settled = False
+        lending.settled_on = None
+
+    await db.commit()
+    return await _lending_out(db, await get_lending(db, user_id, lending_id))
 
 
 # --- Analytics ----------------------------------------------------------------

@@ -77,6 +77,15 @@ export interface Sip {
   is_active: boolean
 }
 
+export interface LendingPayment {
+  id: string
+  amount: string
+  paid_on: string
+  note: string | null
+  account_id: string | null
+  transaction_id: string | null
+}
+
 export interface Lending {
   id: string
   person_name: string
@@ -89,6 +98,9 @@ export interface Lending {
   is_settled: boolean
   settled_on: string | null
   transaction_id: string | null
+  amount_paid: string
+  outstanding: string
+  payments: LendingPayment[]
 }
 
 export interface ReminderLinks {

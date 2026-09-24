@@ -163,3 +163,27 @@ class Lending(Base, UUIDPKMixin, TimestampMixin):
     transaction_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("transactions.id", ondelete="SET NULL"), nullable=True
     )
+
+    payments: Mapped[list["LendingPayment"]] = relationship(
+        back_populates="lending", cascade="all, delete-orphan"
+    )
+
+
+class LendingPayment(Base, UUIDPKMixin, TimestampMixin):
+    """One partial (or full) repayment toward a Lending — split out from the
+    parent record because a friend rarely pays back the full amount in one go.
+    Each entry can optionally link to the account the money actually moved
+    through, same SET-NULL pattern as Lending.transaction_id itself."""
+
+    __tablename__ = "lending_payments"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    lending_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("lendings.id", ondelete="CASCADE"), index=True)
+    amount: Mapped[float] = mapped_column(Numeric(12, 2))
+    paid_on: Mapped[date] = mapped_column(Date)
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    transaction_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("transactions.id", ondelete="SET NULL"), nullable=True
+    )
+
+    lending: Mapped[Lending] = relationship(back_populates="payments")

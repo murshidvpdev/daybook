@@ -27,6 +27,7 @@ from app.schemas.finance import (
     FinanceSummaryOut,
     LendingCreate,
     LendingOut,
+    LendingPaymentCreate,
     LendingUpdate,
     ReminderLinksOut,
     SIPCreate,
@@ -369,6 +370,36 @@ async def update_lending(
 ):
     try:
         return await service.update_lending(db, user_id, lending_id, payload)
+    except service.FinanceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except service.FinanceValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.post("/lendings/{lending_id}/payments", response_model=LendingOut, status_code=status.HTTP_201_CREATED)
+async def add_lending_payment(
+    lending_id: UUID,
+    payload: LendingPaymentCreate,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await service.add_lending_payment(db, user_id, lending_id, payload)
+    except service.FinanceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except service.FinanceValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.delete("/lendings/{lending_id}/payments/{payment_id}", response_model=LendingOut)
+async def delete_lending_payment(
+    lending_id: UUID,
+    payment_id: UUID,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await service.delete_lending_payment(db, user_id, lending_id, payment_id)
     except service.FinanceNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 

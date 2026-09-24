@@ -226,6 +226,24 @@ class LendingUpdate(BaseModel):
     note: str | None = None
 
 
+class LendingPaymentCreate(BaseModel):
+    amount: Decimal
+    paid_on: date | None = None
+    # When set, also creates a matching transaction — income for "lent" (the
+    # money coming back to you), expense for "borrowed" (you paying it back).
+    account_id: UUID | None = None
+    note: str | None = None
+
+
+class LendingPaymentOut(BaseModel):
+    id: UUID
+    amount: Decimal
+    paid_on: date
+    note: str | None
+    account_id: UUID | None
+    transaction_id: UUID | None
+
+
 class LendingOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
@@ -239,6 +257,9 @@ class LendingOut(BaseModel):
     is_settled: bool
     settled_on: date | None
     transaction_id: UUID | None
+    amount_paid: Decimal
+    outstanding: Decimal
+    payments: list[LendingPaymentOut]
 
 
 class ReminderLinksOut(BaseModel):

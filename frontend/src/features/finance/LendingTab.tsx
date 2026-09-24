@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
 import { useRef, useState } from 'react'
 import { Card } from '../../components/Card'
-import { PencilIcon, PlusIcon } from '../../components/Icons'
+import { PencilIcon, PlusIcon, TrashIcon } from '../../components/Icons'
 import { api } from '../../lib/api'
 import { isContactPickerSupported, parseVCard, pickContact } from '../../lib/contactPicker'
 import type { Account, Lending, ReminderLinks } from '../../types/api'
@@ -13,8 +13,13 @@ export function LendingTab() {
     queryKey: ['finance', 'lendings'],
     queryFn: async () => (await api.get<Lending[]>('/finance/lendings')).data,
   })
+  const { data: accounts } = useQuery({
+    queryKey: ['finance', 'accounts'],
+    queryFn: async () => (await api.get<Account[]>('/finance/accounts')).data,
+  })
   const [showNew, setShowNew] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [payingId, setPayingId] = useState<string | null>(null)
 
   const settle = useMutation({
     mutationFn: async (id: string) => (await api.post(`/finance/lendings/${id}/settle`)).data,
@@ -23,6 +28,13 @@ export function LendingTab() {
   const remove = useMutation({
     mutationFn: async (id: string) => api.delete(`/finance/lendings/${id}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['finance', 'lendings'] }),
+  })
+  const deletePayment = useMutation({
+    mutationFn: async ({ lendingId, paymentId }: { lendingId: string; paymentId: string }) =>
+      (await api.delete(`/finance/lendings/${lendingId}/payments/${paymentId}`)).data,
+    // A payment can carry a linked transaction that moved an account's balance —
+    // undoing it needs to refresh accounts/summary too, not just the lending list.
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['finance'] }),
   })
 
   const open = lendings?.filter((l) => !l.is_settled) ?? []
@@ -56,9 +68,14 @@ export function LendingTab() {
             <LendingRow
               key={l.id}
               lending={l}
+              accounts={accounts ?? []}
+              isPaying={payingId === l.id}
+              onTogglePay={() => setPayingId(payingId === l.id ? null : l.id)}
+              onDonePaying={() => setPayingId(null)}
               onSettle={() => settle.mutate(l.id)}
               onEdit={() => setEditingId(l.id)}
               onRemove={() => remove.mutate(l.id)}
+              onDeletePayment={(paymentId) => deletePayment.mutate({ lendingId: l.id, paymentId })}
             />
           ),
         )}
@@ -72,9 +89,14 @@ export function LendingTab() {
               <LendingRow
                 key={l.id}
                 lending={l}
+                accounts={accounts ?? []}
+                isPaying={false}
+                onTogglePay={() => {}}
+                onDonePaying={() => {}}
                 onSettle={() => {}}
                 onEdit={() => setEditingId(l.id)}
                 onRemove={() => remove.mutate(l.id)}
+                onDeletePayment={(paymentId) => deletePayment.mutate({ lendingId: l.id, paymentId })}
               />
             ))}
           </div>
@@ -86,14 +108,24 @@ export function LendingTab() {
 
 function LendingRow({
   lending,
+  accounts,
+  isPaying,
+  onTogglePay,
+  onDonePaying,
   onSettle,
   onEdit,
   onRemove,
+  onDeletePayment,
 }: {
   lending: Lending
+  accounts: Account[]
+  isPaying: boolean
+  onTogglePay: () => void
+  onDonePaying: () => void
   onSettle: () => void
   onEdit: () => void
   onRemove: () => void
+  onDeletePayment: (paymentId: string) => void
 }) {
   const { data: reminder } = useQuery({
     queryKey: ['finance', 'lendings', lending.id, 'reminder'],
@@ -101,6 +133,11 @@ function LendingRow({
     enabled: !!lending.phone_number && !lending.is_settled,
     retry: false,
   })
+
+  const accountById = new Map(accounts.map((a) => [a.id, a]))
+  const hasPayments = lending.payments.length > 0
+  const outstanding = Number(lending.outstanding)
+  const pct = hasPayments ? Math.min(100, Math.max(0, (Number(lending.amount_paid) / Number(lending.amount)) * 100)) : 0
 
   return (
     <Card>
@@ -120,13 +157,18 @@ function LendingRow({
           {lending.note && <p className="mt-1 text-xs text-[var(--ink-soft)]">{lending.note}</p>}
         </div>
         <div className="flex items-center gap-2">
-          <p
-            className={`tabular-nums text-lg font-semibold ${
-              lending.direction === 'lent' ? 'text-[var(--accent-ink)]' : 'text-[var(--danger)]'
-            }`}
-          >
-            ₹{Number(lending.amount).toLocaleString('en-IN')}
-          </p>
+          <div className="text-right">
+            <p
+              className={`tabular-nums text-lg font-semibold ${
+                lending.direction === 'lent' ? 'text-[var(--accent-ink)]' : 'text-[var(--danger)]'
+              }`}
+            >
+              ₹{Number(lending.amount).toLocaleString('en-IN')}
+            </p>
+            {hasPayments && !lending.is_settled && (
+              <p className="text-xs text-[var(--ink-soft)]">₹{outstanding.toLocaleString('en-IN')} left</p>
+            )}
+          </div>
           <button
             onClick={onEdit}
             className="text-[var(--ink-soft)] hover:text-[var(--accent-ink)]"
@@ -137,13 +179,45 @@ function LendingRow({
         </div>
       </div>
 
+      {hasPayments && (
+        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[var(--surface-2)]">
+          <div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${pct}%` }} />
+        </div>
+      )}
+
+      {hasPayments && (
+        <div className="mt-2 flex flex-col gap-1">
+          {lending.payments.map((p) => (
+            <div key={p.id} className="flex items-center justify-between text-xs text-[var(--ink-soft)]">
+              <span>
+                ₹{Number(p.amount).toLocaleString('en-IN')} · {format(parseISO(p.paid_on), 'MMM d')}
+                {p.account_id && ` · via ${accountById.get(p.account_id)?.name ?? 'account'}`}
+              </span>
+              <button
+                onClick={() => onDeletePayment(p.id)}
+                className="text-[var(--ink-soft)] hover:text-[var(--danger)]"
+                aria-label="Remove payment"
+              >
+                <TrashIcon width={12} height={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {!lending.is_settled && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <button
-            onClick={onSettle}
+            onClick={onTogglePay}
             className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
           >
-            Mark settled
+            Record payment
+          </button>
+          <button
+            onClick={onSettle}
+            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--surface-2)]"
+          >
+            {hasPayments ? 'Mark rest settled' : 'Mark settled'}
           </button>
           {reminder && (
             <>
@@ -175,7 +249,112 @@ function LendingRow({
           </button>
         </div>
       )}
+
+      {isPaying && (
+        <RecordPaymentForm lending={lending} accounts={accounts} onDone={onDonePaying} />
+      )}
     </Card>
+  )
+}
+
+function RecordPaymentForm({
+  lending,
+  accounts,
+  onDone,
+}: {
+  lending: Lending
+  accounts: Account[]
+  onDone: () => void
+}) {
+  const queryClient = useQueryClient()
+  const [amount, setAmount] = useState(lending.outstanding)
+  const [paidOn, setPaidOn] = useState(new Date().toISOString().slice(0, 10))
+  const [accountId, setAccountId] = useState('')
+  const [note, setNote] = useState('')
+
+  const record = useMutation({
+    mutationFn: async () =>
+      (
+        await api.post(`/finance/lendings/${lending.id}/payments`, {
+          amount,
+          paid_on: paidOn,
+          account_id: accountId || null,
+          note: note || null,
+        })
+      ).data,
+    onSuccess: () => {
+      // A payment can move an account's balance, not just this one lending record.
+      queryClient.invalidateQueries({ queryKey: ['finance'] })
+      onDone()
+    },
+  })
+
+  return (
+    <div className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--paper)] p-3">
+      <p className="mb-2 text-xs font-medium text-[var(--ink-soft)]">
+        {lending.direction === 'lent' ? 'How much did they pay back?' : 'How much did you pay back?'} (up to ₹
+        {Number(lending.outstanding).toLocaleString('en-IN')})
+      </p>
+      <div className="flex flex-col gap-2">
+        <div className="grid grid-cols-2 gap-2">
+          <input
+            type="number"
+            inputMode="decimal"
+            placeholder="Amount"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+          />
+          <input
+            type="date"
+            value={paidOn}
+            onChange={(e) => setPaidOn(e.target.value)}
+            className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+          />
+        </div>
+        {accounts.length > 0 && (
+          <label className="text-xs font-medium text-[var(--ink-soft)]">
+            {lending.direction === 'lent' ? 'Received into' : 'Paid from'} (optional — updates that account's
+            balance)
+            <select
+              value={accountId}
+              onChange={(e) => setAccountId(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm"
+            >
+              <option value="">Just track it, no account</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <input
+          placeholder="Note (optional)"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+        />
+        <div className="flex gap-2">
+          <button
+            onClick={() => record.mutate()}
+            disabled={!amount || Number(amount) <= 0 || record.isPending}
+            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+          >
+            Save
+          </button>
+          <button onClick={onDone} className="rounded-lg px-4 py-2 text-sm text-[var(--ink-soft)]">
+            Cancel
+          </button>
+        </div>
+        {record.isError && (
+          <p className="text-xs text-[var(--danger)]">
+            Couldn't save that — check the amount isn't more than what's outstanding.
+          </p>
+        )}
+      </div>
+    </div>
   )
 }
 
