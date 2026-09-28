@@ -4,17 +4,19 @@ import { useState } from 'react'
 import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Card } from '../../components/Card'
 import { api } from '../../lib/api'
-import type { AccountBreakdownItem, CategoryBreakdownItem, SpendTrendPoint } from '../../types/api'
+import type { AccountBreakdownItem, CategoryBreakdownItem, IncomeExpense, SpendTrendPoint, Transaction } from '../../types/api'
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ]
 
-// A fixed teal, not the --accent token — Recharts writes this straight into an
-// SVG fill attribute, and custom-property resolution there is inconsistent
-// enough across engines that a literal is the safer bet for a data color.
+// Fixed literals, not --accent/--danger tokens — Recharts writes these straight
+// into an SVG fill attribute, and custom-property resolution there is
+// inconsistent enough across engines that a literal is the safer bet.
 const TREND_COLOR = '#3f8f88'
+const INCOME_COLOR = '#1f5f5b'
+const EXPENSE_COLOR = '#a33d2c'
 
 // Validated categorical set (dataviz skill reference palette) — adjacent-pair
 // CVD-safe across all 8 slots, so a ranked bar chart (compared to its
@@ -33,26 +35,31 @@ function colorForLabel(label: string): string {
   return CATEGORICAL_COLORS[hash % CATEGORICAL_COLORS.length]
 }
 
+interface Row {
+  id: string | null // null = the folded "Other" bucket — not individually filterable
+  label: string
+  total: number
+}
+
 /** Beyond 7 explicit bars, the rest fold into "Other" — matches the palette's
  * safe slot count and keeps the chart from growing a bar per tiny category. */
-function foldToTopSeven(rows: { label: string; total: number }[]): { label: string; total: number }[] {
+function foldToTopSeven(rows: Row[]): Row[] {
   if (rows.length <= 7) return rows
   const top = rows.slice(0, 7)
   const otherTotal = rows.slice(7).reduce((sum, r) => sum + r.total, 0)
-  return [...top, { label: 'Other', total: otherTotal }]
+  return [...top, { id: null, label: 'Other', total: otherTotal }]
 }
 
-function TrendTooltip({ active, payload, label }: { active?: boolean; payload?: { value: number }[]; label?: string }) {
-  if (!active || !payload?.length) return null
-  return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs shadow-sm">
-      <p className="text-[var(--ink-soft)]">{label ? format(parseISO(label), 'MMM d') : ''}</p>
-      <p className="tabular-nums font-semibold">₹{payload[0].value.toLocaleString('en-IN')}</p>
-    </div>
-  )
+function monthRange(year: number, month: number): { start: string; end: string } {
+  const mm = String(month).padStart(2, '0')
+  const lastDay = new Date(year, month, 0).getDate()
+  return { start: `${year}-${mm}-01`, end: `${year}-${mm}-${String(lastDay).padStart(2, '0')}` }
 }
 
-function RankedBarChart({ rows }: { rows: { label: string; total: number }[] }) {
+/** Every ranked chart (category, account) drives the same click-through: tap
+ * a bar, see exactly the transactions behind it, right there — no separate
+ * page, no re-deriving the filter yourself. */
+function RankedBarChart({ rows, onSelect }: { rows: Row[]; onSelect: (row: Row) => void }) {
   const folded = foldToTopSeven(rows)
   const height = Math.max(120, folded.length * 34)
   return (
@@ -71,18 +78,24 @@ function RankedBarChart({ rows }: { rows: { label: string; total: number }[] }) 
           cursor={{ fill: 'var(--surface-2)' }}
           content={({ active, payload }) => {
             if (!active || !payload?.length) return null
-            const row = payload[0].payload as { label: string; total: number }
+            const row = payload[0].payload as Row
             return (
               <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs shadow-sm">
                 <p className="font-medium">{row.label}</p>
                 <p className="tabular-nums font-semibold">₹{row.total.toLocaleString('en-IN')}</p>
+                {row.id !== null && <p className="text-[var(--ink-soft)]">Tap to see transactions</p>}
               </div>
             )
           }}
         />
         <Bar dataKey="total" radius={[0, 4, 4, 0]} maxBarSize={18}>
           {folded.map((row) => (
-            <Cell key={row.label} fill={colorForLabel(row.label)} />
+            <Cell
+              key={row.label}
+              fill={colorForLabel(row.label)}
+              cursor={row.id !== null ? 'pointer' : 'default'}
+              onClick={() => row.id !== null && onSelect(row)}
+            />
           ))}
         </Bar>
       </BarChart>
@@ -90,13 +103,57 @@ function RankedBarChart({ rows }: { rows: { label: string; total: number }[] }) 
   )
 }
 
+type Drilldown = { label: string; params: Record<string, string> }
+
+function DrilldownPanel({ drilldown, onClose }: { drilldown: Drilldown; onClose: () => void }) {
+  const query = new URLSearchParams({ ...drilldown.params, limit: '500' }).toString()
+  const { data: transactions, isLoading } = useQuery({
+    queryKey: ['finance', 'transactions', 'drilldown', drilldown.params],
+    queryFn: async () => (await api.get<Transaction[]>(`/finance/transactions?${query}`)).data,
+  })
+
+  return (
+    <Card className="mt-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-sm font-semibold">{drilldown.label}</h3>
+        <button onClick={onClose} className="text-sm text-[var(--ink-soft)] hover:text-[var(--ink)]" aria-label="Close">
+          ✕
+        </button>
+      </div>
+      {isLoading && <p className="text-sm text-[var(--ink-soft)]">Loading…</p>}
+      {!isLoading && transactions?.length === 0 && (
+        <p className="text-sm text-[var(--ink-soft)]">No transactions match.</p>
+      )}
+      {!isLoading && transactions && transactions.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          {transactions.map((t) => (
+            <div key={t.id} className="flex items-center justify-between border-b border-[var(--border)] py-1.5 text-sm last:border-0">
+              <div>
+                <p>{t.note || (t.kind === 'expense' ? 'Expense' : 'Income')}</p>
+                <p className="text-xs text-[var(--ink-soft)]">{t.occurred_on}</p>
+              </div>
+              <span
+                className={`tabular-nums font-semibold ${t.kind === 'expense' ? 'text-[var(--danger)]' : 'text-[var(--accent-ink)]'}`}
+              >
+                {t.kind === 'expense' ? '−' : '+'}₹{Number(t.amount).toLocaleString('en-IN')}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
 /** Finance's own analytics — spend trend, category, and account breakdowns
  * for a month you pick (defaults to the current one), not a fixed rolling
- * window, so this actually answers "how was my September" not just "lately." */
+ * window, so this actually answers "how was my September" not just "lately."
+ * Every bar is clickable — it opens the exact transactions behind it. */
 export function FinanceAnalytics() {
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth() + 1)
+  const [drilldown, setDrilldown] = useState<Drilldown | null>(null)
 
   function shiftMonth(delta: number) {
     let newMonth = month + delta
@@ -110,7 +167,10 @@ export function FinanceAnalytics() {
     }
     setMonth(newMonth)
     setYear(newYear)
+    setDrilldown(null)
   }
+
+  const { start: monthStart, end: monthEnd } = monthRange(year, month)
 
   const { data: trend, isLoading: loadingTrend } = useQuery({
     queryKey: ['finance', 'analytics', 'spend-trend', year, month],
@@ -133,8 +193,20 @@ export function FinanceAnalytics() {
         await api.get<AccountBreakdownItem[]>(`/finance/analytics/account-breakdown?year=${year}&month=${month}`)
       ).data,
   })
+  const { data: incomeExpense, isLoading: loadingIncomeExpense } = useQuery({
+    queryKey: ['finance', 'analytics', 'income-vs-expense', year, month],
+    queryFn: async () =>
+      (await api.get<IncomeExpense>(`/finance/analytics/income-vs-expense?year=${year}&month=${month}`)).data,
+  })
 
   const hasSpend = trend?.some((p) => Number(p.total) > 0)
+  const incomeExpenseRows = incomeExpense
+    ? [
+        { label: 'Income', total: Number(incomeExpense.income), fill: INCOME_COLOR },
+        { label: 'Expense', total: Number(incomeExpense.expense), fill: EXPENSE_COLOR },
+      ]
+    : []
+  const hasIncomeOrExpense = incomeExpenseRows.some((r) => r.total > 0)
 
   return (
     <div className="mt-8">
@@ -178,8 +250,79 @@ export function FinanceAnalytics() {
                   axisLine={{ stroke: 'var(--border)' }}
                   tickLine={false}
                 />
-                <Tooltip content={<TrendTooltip />} cursor={{ fill: 'var(--surface-2)' }} />
-                <Bar dataKey="total" fill={TREND_COLOR} radius={[3, 3, 0, 0]} maxBarSize={14} />
+                <Tooltip
+                  cursor={{ fill: 'var(--surface-2)' }}
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null
+                    return (
+                      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs shadow-sm">
+                        <p className="text-[var(--ink-soft)]">{format(parseISO(label as string), 'MMM d')}</p>
+                        <p className="tabular-nums font-semibold">
+                          ₹{(payload[0].value as number).toLocaleString('en-IN')}
+                        </p>
+                        <p className="text-[var(--ink-soft)]">Tap to see transactions</p>
+                      </div>
+                    )
+                  }}
+                />
+                <Bar
+                  dataKey="total"
+                  fill={TREND_COLOR}
+                  radius={[3, 3, 0, 0]}
+                  maxBarSize={14}
+                  cursor="pointer"
+                  onClick={(bar) => {
+                    const point = bar?.payload as SpendTrendPoint | undefined
+                    if (!point || Number(point.total) <= 0) return
+                    setDrilldown({
+                      label: format(parseISO(point.date), 'EEEE, MMM d'),
+                      params: { start: point.date, end: point.date },
+                    })
+                  }}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </Card>
+
+        <Card>
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--ink-soft)]">
+            Income vs expense
+          </h2>
+          {loadingIncomeExpense && <p className="text-sm text-[var(--ink-soft)]">Loading…</p>}
+          {!loadingIncomeExpense && !hasIncomeOrExpense && (
+            <p className="py-8 text-center text-sm text-[var(--ink-soft)]">Nothing logged this month.</p>
+          )}
+          {!loadingIncomeExpense && hasIncomeOrExpense && (
+            <ResponsiveContainer width="100%" height={140}>
+              <BarChart data={incomeExpenseRows} layout="vertical" margin={{ top: 0, right: 36, left: 0, bottom: 0 }}>
+                <XAxis type="number" hide />
+                <YAxis
+                  type="category"
+                  dataKey="label"
+                  width={60}
+                  tick={{ fontSize: 11, fill: 'var(--ink-soft)' }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip
+                  cursor={{ fill: 'var(--surface-2)' }}
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null
+                    const row = payload[0].payload as { label: string; total: number }
+                    return (
+                      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs shadow-sm">
+                        <p className="font-medium">{row.label}</p>
+                        <p className="tabular-nums font-semibold">₹{row.total.toLocaleString('en-IN')}</p>
+                      </div>
+                    )
+                  }}
+                />
+                <Bar dataKey="total" radius={[0, 4, 4, 0]} maxBarSize={28}>
+                  {incomeExpenseRows.map((row) => (
+                    <Cell key={row.label} fill={row.fill} />
+                  ))}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -192,7 +335,22 @@ export function FinanceAnalytics() {
             <p className="py-8 text-center text-sm text-[var(--ink-soft)]">No spending logged this month.</p>
           )}
           {!loadingCategories && categories && categories.length > 0 && (
-            <RankedBarChart rows={categories.map((c) => ({ label: c.category_name, total: Number(c.total) }))} />
+            <RankedBarChart
+              rows={categories.map((c) => ({
+                id: c.category_id ?? 'uncategorized',
+                label: c.category_name,
+                total: Number(c.total),
+              }))}
+              onSelect={(row) =>
+                setDrilldown({
+                  label: `${row.label} — ${MONTH_NAMES[month - 1]} ${year}`,
+                  params:
+                    row.id === 'uncategorized'
+                      ? { start: monthStart, end: monthEnd, uncategorized: 'true' }
+                      : { start: monthStart, end: monthEnd, category_id: row.id! },
+                })
+              }
+            />
           )}
         </Card>
 
@@ -203,10 +361,20 @@ export function FinanceAnalytics() {
             <p className="py-8 text-center text-sm text-[var(--ink-soft)]">No spending logged this month.</p>
           )}
           {!loadingAccounts && byAccount && byAccount.length > 0 && (
-            <RankedBarChart rows={byAccount.map((a) => ({ label: a.account_name, total: Number(a.total) }))} />
+            <RankedBarChart
+              rows={byAccount.map((a) => ({ id: a.account_id, label: a.account_name, total: Number(a.total) }))}
+              onSelect={(row) =>
+                setDrilldown({
+                  label: `${row.label} — ${MONTH_NAMES[month - 1]} ${year}`,
+                  params: { start: monthStart, end: monthEnd, account_id: row.id! },
+                })
+              }
+            />
           )}
         </Card>
       </div>
+
+      {drilldown && <DrilldownPanel drilldown={drilldown} onClose={() => setDrilldown(null)} />}
     </div>
   )
 }

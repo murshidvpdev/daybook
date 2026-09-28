@@ -65,6 +65,10 @@ export function OverviewTab() {
 
       {allAccounts.length > 0 && (
         <>
+          {/* Charts first — they're the "how am I doing" read; the raw list
+              below is for finding/editing one specific transaction. */}
+          <FinanceAnalytics />
+
           <h2 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wide text-[var(--ink-soft)]">Recent</h2>
           {loadingTxns && <p className="text-sm text-[var(--ink-soft)]">Loading…</p>}
           {!loadingTxns && transactions?.length === 0 && (
@@ -112,10 +116,6 @@ export function OverviewTab() {
               ),
             )}
           </div>
-
-          {/* Charts come after Recent — the list of what actually happened is
-              more immediately useful than a breakdown of it. */}
-          <FinanceAnalytics />
         </>
       )}
 

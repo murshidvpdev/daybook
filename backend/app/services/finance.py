@@ -205,11 +205,34 @@ async def _assert_category_owned(db: AsyncSession, user_id: UUID, category_id: U
         raise FinanceNotFound("Category not found")
 
 
-async def list_transactions(db: AsyncSession, user_id: UUID, limit: int = 50) -> list[Transaction]:
+async def list_transactions(
+    db: AsyncSession,
+    user_id: UUID,
+    limit: int = 50,
+    start: date | None = None,
+    end: date | None = None,
+    account_id: UUID | None = None,
+    category_id: UUID | None = None,
+    uncategorized: bool = False,
+) -> list[Transaction]:
+    """Powers both the plain "Recent" feed (no filters) and drilling into a
+    single bar of a chart — one day, one category, or one account — so
+    clicking through from a chart always lands on the exact rows behind it."""
     await sync_due_sips(db, user_id)
+    conditions = [Transaction.user_id == user_id]
+    if start is not None:
+        conditions.append(Transaction.occurred_on >= start)
+    if end is not None:
+        conditions.append(Transaction.occurred_on <= end)
+    if account_id is not None:
+        conditions.append(Transaction.account_id == account_id)
+    if uncategorized:
+        conditions.append(Transaction.category_id.is_(None))
+    elif category_id is not None:
+        conditions.append(Transaction.category_id == category_id)
     result = await db.scalars(
         select(Transaction)
-        .where(Transaction.user_id == user_id)
+        .where(*conditions)
         .order_by(Transaction.occurred_on.desc(), Transaction.created_at.desc())
         .limit(limit)
     )
@@ -861,7 +884,7 @@ async def category_breakdown(db: AsyncSession, user_id: UUID, start: date, end: 
     category_name = func.coalesce(TransactionCategory.name, "Uncategorized").label("category_name")
     rows = (
         await db.execute(
-            select(category_name, func.sum(Transaction.amount))
+            select(TransactionCategory.id, category_name, func.sum(Transaction.amount))
             .select_from(Transaction)
             .outerjoin(TransactionCategory, Transaction.category_id == TransactionCategory.id)
             .where(
@@ -870,17 +893,19 @@ async def category_breakdown(db: AsyncSession, user_id: UUID, start: date, end: 
                 Transaction.occurred_on >= start,
                 Transaction.occurred_on <= end,
             )
-            .group_by(category_name)
+            .group_by(TransactionCategory.id, category_name)
             .order_by(func.sum(Transaction.amount).desc())
         )
     ).all()
-    return [{"category_name": row[0], "total": float(row[1])} for row in rows]
+    return [{"category_id": row[0], "category_name": row[1], "total": float(row[2])} for row in rows]
 
 
 async def account_breakdown(db: AsyncSession, user_id: UUID, start: date, end: date) -> list[dict]:
     rows = (
         await db.execute(
-            select(FinancialAccount.name, FinancialAccount.account_type, func.sum(Transaction.amount))
+            select(
+                FinancialAccount.id, FinancialAccount.name, FinancialAccount.account_type, func.sum(Transaction.amount)
+            )
             .select_from(Transaction)
             .join(FinancialAccount, Transaction.account_id == FinancialAccount.id)
             .where(
@@ -893,7 +918,26 @@ async def account_breakdown(db: AsyncSession, user_id: UUID, start: date, end: d
             .order_by(func.sum(Transaction.amount).desc())
         )
     ).all()
-    return [{"account_name": row[0], "account_type": row[1], "total": float(row[2])} for row in rows]
+    return [
+        {"account_id": row[0], "account_name": row[1], "account_type": row[2], "total": float(row[3])}
+        for row in rows
+    ]
+
+
+async def income_vs_expense(db: AsyncSession, user_id: UUID, start: date, end: date) -> dict:
+    income, expense = (
+        await db.execute(
+            select(
+                func.coalesce(func.sum(Transaction.amount).filter(Transaction.kind == "income"), 0),
+                func.coalesce(func.sum(Transaction.amount).filter(Transaction.kind == "expense"), 0),
+            ).where(
+                Transaction.user_id == user_id,
+                Transaction.occurred_on >= start,
+                Transaction.occurred_on <= end,
+            )
+        )
+    ).one()
+    return {"income": float(income), "expense": float(expense)}
 
 
 async def finance_summary(db: AsyncSession, user_id: UUID) -> dict:

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-test('accounts live on their own tab, and Overview shows Recent above the monthly charts', async ({ page }) => {
+test('accounts live on their own tab, and Overview shows the monthly charts above Recent', async ({ page }) => {
   const email = `finance-layout${Date.now()}@example.com`
   await page.goto('/register')
   await page.fill('input[type="email"]', email)
@@ -22,7 +22,7 @@ test('accounts live on their own tab, and Overview shows Recent above the monthl
   await expect(page.getByText('₹2,000').first()).toBeVisible()
 
   // Log a categorized expense from Overview, then confirm layout order:
-  // Recent (the list) sits above the monthly charts, not below them.
+  // the monthly charts sit above Recent (the list), not below it.
   await page.getByRole('button', { name: 'Overview', exact: true }).click()
   await page.fill('input[placeholder="Amount"]', '350')
   await page.fill('input[placeholder="Note (optional)"]', 'Groceries')
@@ -33,7 +33,7 @@ test('accounts live on their own tab, and Overview shows Recent above the monthl
   const chartY = await page.getByText('Daily spend', { exact: true }).boundingBox()
   expect(recentY).toBeTruthy()
   expect(chartY).toBeTruthy()
-  expect(recentY!.y).toBeLessThan(chartY!.y)
+  expect(chartY!.y).toBeLessThan(recentY!.y)
 
   // The category chart reflects this month's spend, with a month picker
   // that can flip to a quiet month and back.

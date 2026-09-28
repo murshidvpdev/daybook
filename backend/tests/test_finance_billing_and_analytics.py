@@ -242,3 +242,32 @@ async def test_analytics_year_month_takes_priority_over_days(
         "/api/v1/finance/analytics/category-breakdown?days=7&year=2020&month=1", headers=auth_headers
     )
     assert float(resp.json()[0]["total"]) == 50.0
+
+
+async def test_income_vs_expense_for_a_month(client: AsyncClient, auth_headers: dict[str, str]) -> None:
+    account = await client.post(
+        "/api/v1/finance/accounts", headers=auth_headers, json={"name": "Wallet", "account_type": "cash"}
+    )
+    account_id = account.json()["id"]
+    await client.post(
+        "/api/v1/finance/transactions",
+        headers=auth_headers,
+        json={"account_id": account_id, "kind": "expense", "amount": "400", "occurred_on": "2026-05-10"},
+    )
+    await client.post(
+        "/api/v1/finance/transactions",
+        headers=auth_headers,
+        json={"account_id": account_id, "kind": "income", "amount": "1500", "occurred_on": "2026-05-12"},
+    )
+    # outside the month — must not leak in
+    await client.post(
+        "/api/v1/finance/transactions",
+        headers=auth_headers,
+        json={"account_id": account_id, "kind": "income", "amount": "9999", "occurred_on": "2026-06-01"},
+    )
+
+    resp = await client.get("/api/v1/finance/analytics/income-vs-expense?year=2026&month=5", headers=auth_headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert float(body["income"]) == 1500.0
+    assert float(body["expense"]) == 400.0

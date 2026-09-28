@@ -26,6 +26,7 @@ from app.schemas.finance import (
     EMIOut,
     EMIUpdate,
     FinanceSummaryOut,
+    IncomeExpenseOut,
     LendingCreate,
     LendingOut,
     LendingPaymentCreate,
@@ -136,8 +137,26 @@ async def delete_category(
 
 
 @router.get("/transactions", response_model=list[TransactionOut])
-async def list_transactions(user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
-    return await service.list_transactions(db, user_id)
+async def list_transactions(
+    start: date | None = None,
+    end: date | None = None,
+    account_id: UUID | None = None,
+    category_id: UUID | None = None,
+    uncategorized: bool = False,
+    limit: int = 50,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    return await service.list_transactions(
+        db,
+        user_id,
+        limit=limit,
+        start=start,
+        end=end,
+        account_id=account_id,
+        category_id=category_id,
+        uncategorized=uncategorized,
+    )
 
 
 @router.post("/transactions", response_model=TransactionOut, status_code=status.HTTP_201_CREATED)
@@ -487,6 +506,18 @@ async def account_breakdown(
 ):
     start, end = _resolve_range(days, year, month)
     return await service.account_breakdown(db, user_id, start, end)
+
+
+@router.get("/analytics/income-vs-expense", response_model=IncomeExpenseOut)
+async def income_vs_expense(
+    days: int | None = None,
+    year: int | None = None,
+    month: int | None = None,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    start, end = _resolve_range(days, year, month)
+    return await service.income_vs_expense(db, user_id, start, end)
 
 
 @router.get("/analytics/summary", response_model=FinanceSummaryOut)

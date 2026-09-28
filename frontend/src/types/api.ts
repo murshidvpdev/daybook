@@ -132,14 +132,21 @@ export interface SpendTrendPoint {
 }
 
 export interface CategoryBreakdownItem {
+  category_id: string | null
   category_name: string
   total: string
 }
 
 export interface AccountBreakdownItem {
+  account_id: string
   account_name: string
   account_type: string
   total: string
+}
+
+export interface IncomeExpense {
+  income: string
+  expense: string
 }
 
 export interface FinanceSummary {

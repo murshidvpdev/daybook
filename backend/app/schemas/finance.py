@@ -314,14 +314,21 @@ class SpendTrendPoint(BaseModel):
 
 
 class CategoryBreakdownItem(BaseModel):
+    category_id: UUID | None  # None means "Uncategorized" — a real filterable bucket, not a placeholder
     category_name: str
     total: Decimal
 
 
 class AccountBreakdownItem(BaseModel):
+    account_id: UUID
     account_name: str
     account_type: str
     total: Decimal
+
+
+class IncomeExpenseOut(BaseModel):
+    income: Decimal
+    expense: Decimal
 
 
 class FinanceSummaryOut(BaseModel):
