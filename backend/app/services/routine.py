@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, time
 from uuid import UUID
 
 from sqlalchemy import select
@@ -93,7 +93,12 @@ async def delete_item(db: AsyncSession, user_id: UUID, routine_id: UUID, item_id
 
 
 async def toggle_item_completion(
-    db: AsyncSession, user_id: UUID, routine_id: UUID, item_id: UUID, on: date | None
+    db: AsyncSession,
+    user_id: UUID,
+    routine_id: UUID,
+    item_id: UUID,
+    on: date | None,
+    at: time | None = None,
 ) -> Routine:
     routine = await _get_owned_routine(db, user_id, routine_id)
     item = next((i for i in routine.items if i.id == item_id), None)
@@ -105,7 +110,35 @@ async def toggle_item_completion(
     if existing is not None:
         await db.delete(existing)
     else:
-        db.add(RoutineCompletion(routine_item_id=item.id, completed_on=target_date))
+        db.add(
+            RoutineCompletion(
+                routine_item_id=item.id,
+                completed_on=target_date,
+                completed_at=at or datetime.now().time().replace(microsecond=0),
+            )
+        )
+    await db.commit()
+    return await _get_owned_routine(db, user_id, routine_id)
+
+
+async def update_completion_time(
+    db: AsyncSession,
+    user_id: UUID,
+    routine_id: UUID,
+    item_id: UUID,
+    on: date | None,
+    at: time,
+) -> Routine:
+    """Corrects the logged time of an already-marked-done item — for the very
+    common case of ticking things off in a batch at night, well after they
+    actually happened, then going back to set the real times."""
+    routine = await _get_owned_routine(db, user_id, routine_id)
+    item = _get_owned_item(routine, item_id)
+    target_date = on or date.today()
+    completion = next((c for c in item.completions if c.completed_on == target_date), None)
+    if completion is None:
+        raise RoutineNotFound("This item isn't marked done on that day yet")
+    completion.completed_at = at
     await db.commit()
     return await _get_owned_routine(db, user_id, routine_id)
 
@@ -116,12 +149,14 @@ def annotate_completed_today(routines: list[Routine]) -> list[dict]:
     for r in routines:
         items = []
         for item in sorted(r.items, key=lambda i: i.sort_order):
+            today_completion = next((c for c in item.completions if c.completed_on == today), None)
             items.append(
                 {
                     "id": item.id,
                     "title": item.title,
                     "sort_order": item.sort_order,
-                    "completed_today": any(c.completed_on == today for c in item.completions),
+                    "completed_today": today_completion is not None,
+                    "completed_at": today_completion.completed_at if today_completion else None,
                 }
             )
         out.append(

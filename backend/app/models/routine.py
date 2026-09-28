@@ -1,7 +1,7 @@
 import uuid
-from datetime import date
+from datetime import date, time
 
-from sqlalchemy import Date, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Date, ForeignKey, Integer, String, Time, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDPKMixin
@@ -39,5 +39,9 @@ class RoutineCompletion(Base, UUIDPKMixin):
         ForeignKey("routine_items.id", ondelete="CASCADE"), index=True
     )
     completed_on: Mapped[date] = mapped_column(Date, index=True)
+    # When it actually happened, not when it was logged — most people mark a
+    # whole day's routine done in one sitting at night, well after the fact,
+    # so "now" at write time would be useless for anything time-of-day related.
+    completed_at: Mapped[time | None] = mapped_column(Time, nullable=True)
 
     item: Mapped[RoutineItem] = relationship(back_populates="completions")

@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, time
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -20,6 +20,7 @@ class RoutineItemOut(BaseModel):
     title: str
     sort_order: int
     completed_today: bool = False
+    completed_at: time | None = None
 
 
 class RoutineCreate(BaseModel):
@@ -45,3 +46,9 @@ class RoutineOut(BaseModel):
 
 class RoutineCompletionToggle(BaseModel):
     completed_on: date | None = None  # defaults to today in the service layer
+    completed_at: time | None = None  # defaults to now, only used when marking done (not un-marking)
+
+
+class RoutineCompletionTimeUpdate(BaseModel):
+    completed_on: date | None = None  # which day's completion to correct; defaults to today
+    completed_at: time

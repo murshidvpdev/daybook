@@ -1,5 +1,4 @@
 import io
-import os
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
@@ -8,8 +7,6 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import inch
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
     Paragraph,
     SimpleDocTemplate,
@@ -25,23 +22,7 @@ from app.models.finance import FinancialAccount, Lending, Transaction, Transacti
 from app.models.fitness import ExerciseSet, WorkoutSession
 from app.models.habit import Habit, HabitCompletion
 from app.models.routine import Routine, RoutineCompletion, RoutineItem
-
-_FONT_PATH = os.path.join(os.path.dirname(__file__), "..", "assets", "fonts", "Caveat-Variable.ttf")
-_INK = colors.HexColor("#2b3a67")
-_INK_SOFT = colors.HexColor("#4a4a4a")
-_HIGHLIGHT_BG = colors.HexColor("#fff3c4")
-_RULE_LINE = colors.HexColor("#dfe3ee")
-_EXPENSE = colors.HexColor("#b3261e")
-_INCOME = colors.HexColor("#1a7a42")
-
-_fonts_registered = False
-
-
-def _ensure_fonts() -> None:
-    global _fonts_registered
-    if not _fonts_registered:
-        pdfmetrics.registerFont(TTFont("Caveat", _FONT_PATH))
-        _fonts_registered = True
+from app.services import pdf_common as pdfc
 
 
 async def build_day_report(db: AsyncSession, user_id: UUID, report_date: date) -> dict:
@@ -158,53 +139,32 @@ async def build_day_report(db: AsyncSession, user_id: UUID, report_date: date) -
     }
 
 
-def _rupees(amount: Decimal) -> str:
-    # Not the "₹" glyph — reportlab's base-14 fonts don't contain it, so it
-    # would render as a tofu box instead of failing loudly.
-    return f"Rs {amount:,.0f}"
-
-
-def _draw_ruled_page(canvas, doc) -> None:
-    """Faint ruled-notebook-paper background, redrawn on every page this report spans."""
-    canvas.saveState()
-    canvas.setStrokeColor(_RULE_LINE)
-    canvas.setLineWidth(0.6)
-    y = doc.pagesize[1] - 1.3 * inch
-    while y > 0.6 * inch:
-        canvas.line(0.5 * inch, y, doc.pagesize[0] - 0.5 * inch, y)
-        y -= 0.28 * inch
-    canvas.setStrokeColor(colors.HexColor("#f2c9c9"))
-    canvas.setLineWidth(1)
-    canvas.line(1.15 * inch, doc.pagesize[1] - 0.4 * inch, 1.15 * inch, 0.5 * inch)
-    canvas.restoreState()
-
-
 def render_day_report_pdf(data: dict) -> bytes:
     """Renders the diary-page PDF from the dict build_day_report() produces —
     kept as a pure function of that data so the JSON preview and the PDF export
     are guaranteed to agree on the same numbers."""
-    _ensure_fonts()
+    pdfc.ensure_fonts()
 
     heading_style = ParagraphStyle(
         "Heading",
         fontName="Caveat",
         fontSize=22,
         leading=30,
-        textColor=_INK,
+        textColor=pdfc.INK,
         spaceBefore=16,
         spaceAfter=10,
     )
     title_style = ParagraphStyle(
-        "Title", fontName="Caveat", fontSize=40, textColor=_INK, spaceAfter=4, leading=44
+        "Title", fontName="Caveat", fontSize=40, textColor=pdfc.INK, spaceAfter=4, leading=44
     )
     body_style = ParagraphStyle(
-        "Body", fontName="Helvetica", fontSize=10.5, textColor=_INK_SOFT, leading=15
+        "Body", fontName="Helvetica", fontSize=10.5, textColor=pdfc.INK_SOFT, leading=15
     )
     empty_style = ParagraphStyle(
         "Empty", fontName="Helvetica-Oblique", fontSize=10, textColor=colors.grey, leftIndent=14
     )
     highlight_style = ParagraphStyle(
-        "Highlight", fontName="Helvetica-Bold", fontSize=11, textColor=_INK, leading=16
+        "Highlight", fontName="Helvetica-Bold", fontSize=11, textColor=pdfc.INK, leading=16
     )
 
     story: list = []
@@ -221,9 +181,9 @@ def render_day_report_pdf(data: dict) -> bytes:
     if habits_total:
         highlight_bits.append(f"✓ Habits {habits_done}/{habits_total}")
     if data["total_spent"]:
-        highlight_bits.append(f"Spent {_rupees(data['total_spent'])}")
+        highlight_bits.append(f"Spent {pdfc.rupees(data['total_spent'])}")
     if data["total_income"]:
-        highlight_bits.append(f"Income {_rupees(data['total_income'])}")
+        highlight_bits.append(f"Income {pdfc.rupees(data['total_income'])}")
     if data["workouts"]:
         highlight_bits.append("Workout logged")
     highlight_text = "   ·   ".join(highlight_bits) if highlight_bits else "A quiet day — nothing logged."
@@ -234,7 +194,7 @@ def render_day_report_pdf(data: dict) -> bytes:
     highlight_table.setStyle(
         TableStyle(
             [
-                ("BACKGROUND", (0, 0), (-1, -1), _HIGHLIGHT_BG),
+                ("BACKGROUND", (0, 0), (-1, -1), pdfc.HIGHLIGHT_BG),
                 ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#e8d68a")),
                 ("LEFTPADDING", (0, 0), (-1, -1), 12),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 12),
@@ -267,19 +227,19 @@ def render_day_report_pdf(data: dict) -> bytes:
     if data["transactions"]:
         for t in data["transactions"]:
             sign = "−" if t["kind"] == "expense" else "+"
-            color = _EXPENSE if t["kind"] == "expense" else _INCOME
+            color = pdfc.EXPENSE if t["kind"] == "expense" else pdfc.INCOME
             label = t["note"] or t["category_name"] or "Uncategorized"
             story.append(
                 Paragraph(
                     f'{label} <font color="grey">({t["account_name"]})</font> '
-                    f'<font color="{color.hexval()}"><b>{sign}{_rupees(t["amount"])}</b></font>',
+                    f'<font color="{color.hexval()}"><b>{sign}{pdfc.rupees(t["amount"])}</b></font>',
                     body_style,
                 )
             )
         net = data["total_income"] - data["total_spent"]
         net_word = "ahead" if net >= 0 else "spent net"
         story.append(Spacer(1, 4))
-        story.append(Paragraph(f"<b>Net: {_rupees(abs(net))} {net_word}</b>", highlight_style))
+        story.append(Paragraph(f"<b>Net: {pdfc.rupees(abs(net))} {net_word}</b>", highlight_style))
     else:
         story.append(Paragraph("No transactions logged.", empty_style))
 
@@ -304,7 +264,7 @@ def render_day_report_pdf(data: dict) -> bytes:
         story.append(Paragraph("Lending", heading_style))
         for entry in data["lendings"]:
             verb = "lent to" if entry["direction"] == "lent" else "borrowed from"
-            story.append(Paragraph(f"{_rupees(entry['amount'])} {verb} {entry['person_name']}", body_style))
+            story.append(Paragraph(f"{pdfc.rupees(entry['amount'])} {verb} {entry['person_name']}", body_style))
 
     story.append(Spacer(1, 24))
     story.append(Paragraph("— that was the day. — Daybook", ParagraphStyle(
@@ -320,5 +280,5 @@ def render_day_report_pdf(data: dict) -> bytes:
         leftMargin=1.4 * inch,
         rightMargin=0.7 * inch,
     )
-    doc.build(story, onFirstPage=_draw_ruled_page, onLaterPages=_draw_ruled_page)
+    doc.build(story, onFirstPage=pdfc.draw_ruled_page, onLaterPages=pdfc.draw_ruled_page)
     return buffer.getvalue()

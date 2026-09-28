@@ -9,6 +9,7 @@ export interface RoutineItem {
   title: string
   sort_order: number
   completed_today: boolean
+  completed_at: string | null
 }
 
 export interface Routine {
@@ -216,4 +217,22 @@ export interface DayReport {
     sets: { exercise_name: string; reps: number; weight_kg: string | null }[]
   }[]
   lendings: { person_name: string; direction: 'lent' | 'borrowed'; amount: string }[]
+}
+
+export interface PeriodReport {
+  label: string
+  start_date: string | null
+  end_date: string | null
+  routine_completions: number
+  habits_completed: number
+  transactions_count: number
+  total_spent: string
+  total_income: string
+  net: string
+  top_category: { category_name: string; total: string } | null
+  workouts_count: number
+  total_sets: number
+  lending_given: string
+  lending_borrowed: string
+  lending_repaid: string
 }

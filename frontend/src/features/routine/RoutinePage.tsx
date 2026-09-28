@@ -5,6 +5,14 @@ import type { Routine } from '../../types/api'
 import { Card } from '../../components/Card'
 import { PencilIcon, PlusIcon, TrashIcon } from '../../components/Icons'
 
+/** "14:05:00" -> "2:05 PM" — the backend stores/returns 24h HH:MM:SS. */
+function formatTime(value: string): string {
+  const [h, m] = value.split(':').map(Number)
+  const period = h >= 12 ? 'PM' : 'AM'
+  const h12 = h % 12 === 0 ? 12 : h % 12
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`
+}
+
 export function RoutinePage() {
   const queryClient = useQueryClient()
   const { data: routines, isLoading } = useQuery({
@@ -20,6 +28,23 @@ export function RoutinePage() {
       queryClient.invalidateQueries({ queryKey: ['dashboard', 'today'] })
     },
   })
+  const updateCompletionTime = useMutation({
+    mutationFn: async ({
+      routineId,
+      itemId,
+      completedAt,
+    }: {
+      routineId: string
+      itemId: string
+      completedAt: string
+    }) =>
+      (
+        await api.patch(`/routines/${routineId}/items/${itemId}/completion-time`, {
+          completed_at: completedAt,
+        })
+      ).data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['routines'] }),
+  })
   const deleteRoutine = useMutation({
     mutationFn: async (routineId: string) => api.delete(`/routines/${routineId}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['routines'] }),
@@ -34,6 +59,7 @@ export function RoutinePage() {
   const [editingRoutineId, setEditingRoutineId] = useState<string | null>(null)
   const [addingItemFor, setAddingItemFor] = useState<string | null>(null)
   const [editingItem, setEditingItem] = useState<{ routineId: string; itemId: string } | null>(null)
+  const [editingTimeFor, setEditingTimeFor] = useState<string | null>(null)
 
   return (
     <div>
@@ -121,6 +147,34 @@ export function RoutinePage() {
                           {item.title}
                         </span>
                       </button>
+                      {item.completed_today &&
+                        item.completed_at &&
+                        (editingTimeFor === item.id ? (
+                          <input
+                            type="time"
+                            autoFocus
+                            defaultValue={item.completed_at.slice(0, 5)}
+                            onBlur={() => setEditingTimeFor((cur) => (cur === item.id ? null : cur))}
+                            onChange={(e) => {
+                              if (!e.target.value) return
+                              updateCompletionTime.mutate({
+                                routineId: routine.id,
+                                itemId: item.id,
+                                completedAt: `${e.target.value}:00`,
+                              })
+                              setEditingTimeFor(null)
+                            }}
+                            className="flex-none rounded-lg border border-[var(--border)] bg-[var(--paper)] px-1.5 py-1 text-xs outline-none focus:border-[var(--accent)]"
+                          />
+                        ) : (
+                          <button
+                            onClick={() => setEditingTimeFor(item.id)}
+                            title="Not when it actually happened? Tap to correct the time"
+                            className="flex-none whitespace-nowrap text-xs text-[var(--ink-soft)] hover:text-[var(--accent-ink)]"
+                          >
+                            {formatTime(item.completed_at)}
+                          </button>
+                        ))}
                       <button
                         onClick={() => setEditingItem({ routineId: routine.id, itemId: item.id })}
                         className="flex-none text-[var(--ink-soft)] hover:text-[var(--accent-ink)]"

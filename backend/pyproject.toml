@@ -38,6 +38,6 @@ line-length = 110
 
 [tool.ruff.lint]
 # B008: FastAPI's `Depends(...)` as a default argument is the framework's own idiom, not a bug.
-# DTZ011: `date.today()` is intentional here — "today" means the server's local calendar day
-# for a single-user app; revisit if/when this needs to be the user's own timezone instead.
-ignore = ["B008", "DTZ011"]
+# DTZ011/DTZ005: `date.today()`/`datetime.now()` are intentional here — "now" means the
+# server's local time for a single-user app; revisit if/when this needs the user's own timezone.
+ignore = ["B008", "DTZ011", "DTZ005"]

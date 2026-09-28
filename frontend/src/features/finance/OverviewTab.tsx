@@ -82,7 +82,11 @@ export function OverviewTab({ onOpenCreditCards }: { onOpenCreditCards: () => vo
     <div>
       <FinanceSummaryPanel />
 
-      <div className="mb-4 flex items-center justify-between">
+      {/* Quick-add up top, since logging a transaction is the thing you'll do
+          most often here — everything else on this tab is setup/review. */}
+      {allAccounts.length > 0 && <NewTransactionForm accounts={allAccounts} />}
+
+      <div className="mb-4 mt-6 flex items-center justify-between">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-[var(--ink-soft)]">Accounts</h2>
         <button
           onClick={() => setShowAddAccount((v) => !v)}
@@ -200,8 +204,6 @@ export function OverviewTab({ onOpenCreditCards }: { onOpenCreditCards: () => vo
 
       {allAccounts.length > 0 && (
         <>
-          <NewTransactionForm accounts={allAccounts} />
-
           <h2 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wide text-[var(--ink-soft)]">Recent</h2>
           {loadingTxns && <p className="text-sm text-[var(--ink-soft)]">Loading…</p>}
           {!loadingTxns && transactions?.length === 0 && (

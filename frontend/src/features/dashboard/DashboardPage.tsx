@@ -5,7 +5,7 @@ import type { TodaySummary } from '../../types/api'
 import { StatCard } from '../../components/Card'
 import { useAuth } from '../../auth/AuthContext'
 import { EmiDueBanner } from '../finance/EmiDueBanner'
-import { DayReportCard } from './DayReportCard'
+import { ReportsCard } from './ReportsCard'
 
 export function DashboardPage() {
   const { user } = useAuth()
@@ -49,7 +49,7 @@ export function DashboardPage() {
         </>
       )}
 
-      <DayReportCard />
+      <ReportsCard />
     </div>
   )
 }

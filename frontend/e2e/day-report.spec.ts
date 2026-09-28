@@ -8,7 +8,7 @@ test('day report card shows a live preview and downloads a real PDF', async ({ p
   await page.click('button[type="submit"]')
   await expect(page.getByText('Good day,')).toBeVisible({ timeout: 15_000 })
 
-  await expect(page.getByText('Day report')).toBeVisible()
+  await expect(page.getByText('Reports')).toBeVisible()
   // Fresh account, today's date selected by default — nothing logged yet.
   await expect(page.getByText(/Nothing logged on/)).toBeVisible()
 

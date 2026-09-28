@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, time
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user_id
 from app.db.session import get_db
 from app.schemas.routine import (
+    RoutineCompletionTimeUpdate,
     RoutineCreate,
     RoutineItemCreate,
     RoutineItemUpdate,
@@ -104,11 +105,29 @@ async def toggle_item(
     routine_id: UUID,
     item_id: UUID,
     on: date | None = None,
+    at: time | None = None,
     user_id: UUID = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        routine = await service.toggle_item_completion(db, user_id, routine_id, item_id, on)
+        routine = await service.toggle_item_completion(db, user_id, routine_id, item_id, on, at)
     except service.RoutineNotFound:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Routine or item not found")
+    return service.annotate_completed_today([routine])[0]
+
+
+@router.patch("/{routine_id}/items/{item_id}/completion-time", response_model=RoutineOut)
+async def update_completion_time(
+    routine_id: UUID,
+    item_id: UUID,
+    payload: RoutineCompletionTimeUpdate,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        routine = await service.update_completion_time(
+            db, user_id, routine_id, item_id, payload.completed_on, payload.completed_at
+        )
+    except service.RoutineNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc) or "Routine or item not found")
     return service.annotate_completed_today([routine])[0]
