@@ -134,6 +134,7 @@ function SpendForm({ cardId, onDone }: { cardId: string; onDone: () => void }) {
   const [amount, setAmount] = useState('')
   const [note, setNote] = useState('')
   const [categoryId, setCategoryId] = useState<string | null>(() => getLastCategory('expense'))
+  const [categoryBusy, setCategoryBusy] = useState(false)
   const [isLent, setIsLent] = useState(false)
   const [personName, setPersonName] = useState('')
   const [phoneNumber, setPhoneNumber] = useState('')
@@ -177,7 +178,14 @@ function SpendForm({ cardId, onDone }: { cardId: string; onDone: () => void }) {
           className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
         />
         {!isLent && (
-          <CategoryPicker kind="expense" value={categoryId} onChange={setCategoryId} fieldBg="bg-[var(--surface)]" className="w-full" />
+          <CategoryPicker
+            kind="expense"
+            value={categoryId}
+            onChange={setCategoryId}
+            onBusyChange={setCategoryBusy}
+            fieldBg="bg-[var(--surface)]"
+            className="w-full"
+          />
         )}
         <label className="flex items-center gap-2 text-xs font-medium text-[var(--ink-soft)]">
           <input type="checkbox" checked={isLent} onChange={(e) => setIsLent(e.target.checked)} />
@@ -211,7 +219,7 @@ function SpendForm({ cardId, onDone }: { cardId: string; onDone: () => void }) {
         <div className="flex gap-2">
           <button
             onClick={() => submit.mutate()}
-            disabled={!canSubmit || submit.isPending}
+            disabled={!canSubmit || submit.isPending || categoryBusy}
             className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
           >
             Save

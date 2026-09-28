@@ -25,6 +25,7 @@ export function EditTransactionForm({
   const [kind, setKind] = useState<'expense' | 'income'>(transaction.kind)
   const [categoryId, setCategoryId] = useState<string | null>(transaction.category_id)
   const [occurredOn, setOccurredOn] = useState(transaction.occurred_on)
+  const [categoryBusy, setCategoryBusy] = useState(false)
 
   const update = useMutation({
     mutationFn: async () =>
@@ -61,7 +62,7 @@ export function EditTransactionForm({
             </button>
           ))}
         </div>
-        <CategoryPicker kind={kind} value={categoryId} onChange={setCategoryId} />
+        <CategoryPicker kind={kind} value={categoryId} onChange={setCategoryId} onBusyChange={setCategoryBusy} />
         <select
           aria-label="Account"
           value={accountId}
@@ -97,7 +98,7 @@ export function EditTransactionForm({
         />
         <button
           onClick={() => update.mutate()}
-          disabled={!amount || update.isPending}
+          disabled={!amount || update.isPending || categoryBusy}
           className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
         >
           Save

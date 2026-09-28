@@ -229,6 +229,7 @@ function NewTransactionForm({ accounts }: { accounts: Account[] }) {
   const [note, setNote] = useState('')
   const [kind, setKind] = useState<'expense' | 'income'>('expense')
   const [categoryId, setCategoryId] = useState<string | null>(() => getLastCategory('expense'))
+  const [categoryBusy, setCategoryBusy] = useState(false)
 
   function changeKind(next: 'expense' | 'income') {
     setKind(next)
@@ -306,7 +307,7 @@ function NewTransactionForm({ accounts }: { accounts: Account[] }) {
             </button>
           ))}
         </div>
-        <CategoryPicker kind={kind} value={categoryId} onChange={setCategoryId} />
+        <CategoryPicker kind={kind} value={categoryId} onChange={setCategoryId} onBusyChange={setCategoryBusy} />
         {accounts.length > 1 && (
           <select
             aria-label="Account"
@@ -337,7 +338,7 @@ function NewTransactionForm({ accounts }: { accounts: Account[] }) {
         />
         <button
           type="submit"
-          disabled={!amount || create.isPending}
+          disabled={!amount || create.isPending || categoryBusy}
           className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
         >
           Add

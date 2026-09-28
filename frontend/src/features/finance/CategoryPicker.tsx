@@ -12,6 +12,7 @@ export function CategoryPicker({
   onChange,
   className = '',
   fieldBg = 'bg-[var(--paper)]',
+  onBusyChange,
 }: {
   kind: 'expense' | 'income'
   value: string | null
@@ -20,13 +21,23 @@ export function CategoryPicker({
   /** Match the input background to whatever surface this picker sits on —
    * a card (white) wants paper-colored fields, a paper panel wants surface ones. */
   fieldBg?: string
+  /** Fires while the "+ New category" flow is open (typing a name, or the
+   * create request in flight) — the category only actually lands in `value`
+   * once that request resolves, so the parent form should block its own
+   * submit during this window. Otherwise a fast submit races the category
+   * creation and saves with the *old* category (often none). */
+  onBusyChange?: (busy: boolean) => void
 }) {
   const queryClient = useQueryClient()
   const { data: categories } = useQuery({
     queryKey: ['finance', 'categories'],
     queryFn: async () => (await api.get<Category[]>('/finance/categories')).data,
   })
-  const [adding, setAdding] = useState(false)
+  const [adding, setAddingState] = useState(false)
+  const setAdding = (next: boolean) => {
+    setAddingState(next)
+    onBusyChange?.(next)
+  }
   const [newName, setNewName] = useState('')
 
   const create = useMutation({
