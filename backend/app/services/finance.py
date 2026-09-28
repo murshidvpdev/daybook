@@ -214,10 +214,12 @@ async def list_transactions(
     account_id: UUID | None = None,
     category_id: UUID | None = None,
     uncategorized: bool = False,
+    kind: str | None = None,
 ) -> list[Transaction]:
     """Powers both the plain "Recent" feed (no filters) and drilling into a
-    single bar of a chart — one day, one category, or one account — so
-    clicking through from a chart always lands on the exact rows behind it."""
+    single bar of a chart — one day, one category, one account, or the
+    income/expense split — so clicking through from a chart always lands on
+    the exact rows behind it."""
     await sync_due_sips(db, user_id)
     conditions = [Transaction.user_id == user_id]
     if start is not None:
@@ -230,6 +232,8 @@ async def list_transactions(
         conditions.append(Transaction.category_id.is_(None))
     elif category_id is not None:
         conditions.append(Transaction.category_id == category_id)
+    if kind is not None:
+        conditions.append(Transaction.kind == kind)
     result = await db.scalars(
         select(Transaction)
         .where(*conditions)

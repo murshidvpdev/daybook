@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -143,6 +144,7 @@ async def list_transactions(
     account_id: UUID | None = None,
     category_id: UUID | None = None,
     uncategorized: bool = False,
+    kind: Literal["income", "expense"] | None = None,
     limit: int = 50,
     user_id: UUID = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
@@ -156,6 +158,7 @@ async def list_transactions(
         account_id=account_id,
         category_id=category_id,
         uncategorized=uncategorized,
+        kind=kind,
     )
 
 

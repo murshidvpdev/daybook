@@ -120,6 +120,26 @@ async def test_list_transactions_filters_by_account_and_date_range(
     assert float(txns[0]["amount"]) == 50.0
 
 
+async def test_list_transactions_filters_by_kind(client: AsyncClient, auth_headers: dict[str, str]) -> None:
+    account = await _create_account(client, auth_headers)
+    await client.post(
+        "/api/v1/finance/transactions",
+        headers=auth_headers,
+        json={"account_id": account["id"], "kind": "expense", "amount": "200"},
+    )
+    await client.post(
+        "/api/v1/finance/transactions",
+        headers=auth_headers,
+        json={"account_id": account["id"], "kind": "income", "amount": "5000"},
+    )
+
+    resp = await client.get("/api/v1/finance/transactions?kind=income", headers=auth_headers)
+    txns = resp.json()
+    assert len(txns) == 1
+    assert txns[0]["kind"] == "income"
+    assert float(txns[0]["amount"]) == 5000.0
+
+
 async def test_list_transactions_without_filters_is_unchanged(
     client: AsyncClient, auth_headers: dict[str, str]
 ) -> None:

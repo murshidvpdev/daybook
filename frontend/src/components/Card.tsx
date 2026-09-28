@@ -4,15 +4,18 @@ export function Card({
   children,
   className = '',
   style,
+  'data-testid': testId,
 }: {
   children: ReactNode
   className?: string
   style?: CSSProperties
+  'data-testid'?: string
 }) {
   return (
     <div
       className={`min-w-0 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 ${className}`}
       style={style}
+      data-testid={testId}
     >
       {children}
     </div>

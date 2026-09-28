@@ -3,8 +3,18 @@ import { format, parseISO } from 'date-fns'
 import { useState } from 'react'
 import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Card } from '../../components/Card'
+import { PencilIcon } from '../../components/Icons'
 import { api } from '../../lib/api'
-import type { AccountBreakdownItem, CategoryBreakdownItem, IncomeExpense, SpendTrendPoint, Transaction } from '../../types/api'
+import type {
+  Account,
+  AccountBreakdownItem,
+  Category,
+  CategoryBreakdownItem,
+  IncomeExpense,
+  SpendTrendPoint,
+  Transaction,
+} from '../../types/api'
+import { EditTransactionForm } from './EditTransactionForm'
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -105,15 +115,31 @@ function RankedBarChart({ rows, onSelect }: { rows: Row[]; onSelect: (row: Row) 
 
 type Drilldown = { label: string; params: Record<string, string> }
 
+/** The table every chart bar opens into — same rows a click on "Groceries" or
+ * "Sep 28" or "Expense" resolves to, laid out so they're actually scannable
+ * (not a bare list) and editable right there, since the #1 reason to open
+ * this is to give an Uncategorized row the category it's missing. */
 function DrilldownPanel({ drilldown, onClose }: { drilldown: Drilldown; onClose: () => void }) {
   const query = new URLSearchParams({ ...drilldown.params, limit: '500' }).toString()
   const { data: transactions, isLoading } = useQuery({
     queryKey: ['finance', 'transactions', 'drilldown', drilldown.params],
     queryFn: async () => (await api.get<Transaction[]>(`/finance/transactions?${query}`)).data,
   })
+  const { data: accounts } = useQuery({
+    queryKey: ['finance', 'accounts'],
+    queryFn: async () => (await api.get<Account[]>('/finance/accounts')).data,
+  })
+  const { data: categories } = useQuery({
+    queryKey: ['finance', 'categories'],
+    queryFn: async () => (await api.get<Category[]>('/finance/categories')).data,
+  })
+  const [editingId, setEditingId] = useState<string | null>(null)
+
+  const accountName = (id: string) => accounts?.find((a) => a.id === id)?.name ?? '—'
+  const categoryName = (id: string | null) => (id ? categories?.find((c) => c.id === id)?.name ?? '—' : null)
 
   return (
-    <Card className="mt-4">
+    <Card className="mt-4" data-testid="drilldown-panel">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-semibold">{drilldown.label}</h3>
         <button onClick={onClose} className="text-sm text-[var(--ink-soft)] hover:text-[var(--ink)]" aria-label="Close">
@@ -124,21 +150,69 @@ function DrilldownPanel({ drilldown, onClose }: { drilldown: Drilldown; onClose:
       {!isLoading && transactions?.length === 0 && (
         <p className="text-sm text-[var(--ink-soft)]">No transactions match.</p>
       )}
-      {!isLoading && transactions && transactions.length > 0 && (
-        <div className="flex flex-col gap-1.5">
-          {transactions.map((t) => (
-            <div key={t.id} className="flex items-center justify-between border-b border-[var(--border)] py-1.5 text-sm last:border-0">
-              <div>
-                <p>{t.note || (t.kind === 'expense' ? 'Expense' : 'Income')}</p>
-                <p className="text-xs text-[var(--ink-soft)]">{t.occurred_on}</p>
-              </div>
-              <span
-                className={`tabular-nums font-semibold ${t.kind === 'expense' ? 'text-[var(--danger)]' : 'text-[var(--accent-ink)]'}`}
-              >
-                {t.kind === 'expense' ? '−' : '+'}₹{Number(t.amount).toLocaleString('en-IN')}
-              </span>
-            </div>
-          ))}
+      {!isLoading && transactions && transactions.length > 0 && accounts && (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px] border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-[var(--border)] text-left text-xs uppercase tracking-wide text-[var(--ink-soft)]">
+                <th className="py-2 pr-3 font-medium">Date</th>
+                <th className="py-2 pr-3 font-medium">Note</th>
+                <th className="py-2 pr-3 font-medium">Category</th>
+                <th className="py-2 pr-3 font-medium">Account</th>
+                <th className="py-2 pr-3 text-right font-medium">Amount</th>
+                <th className="py-2 pl-1 font-medium" />
+              </tr>
+            </thead>
+            <tbody>
+              {transactions.map((t) => {
+                const catName = categoryName(t.category_id)
+                return editingId === t.id ? (
+                  <tr key={t.id}>
+                    <td colSpan={6} className="py-2">
+                      <EditTransactionForm
+                        transaction={t}
+                        accounts={accounts}
+                        onDone={() => setEditingId(null)}
+                      />
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={t.id} className="border-b border-[var(--border)] last:border-0">
+                    <td className="whitespace-nowrap py-2 pr-3 text-[var(--ink-soft)]">{t.occurred_on}</td>
+                    <td className="py-2 pr-3">{t.note || (t.kind === 'expense' ? 'Expense' : 'Income')}</td>
+                    <td className="py-2 pr-3">
+                      {catName ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <span
+                            className="inline-block h-2 w-2 rounded-full"
+                            style={{ backgroundColor: colorForLabel(catName) }}
+                          />
+                          {catName}
+                        </span>
+                      ) : (
+                        <span className="italic text-[var(--ink-soft)]">Uncategorized</span>
+                      )}
+                    </td>
+                    <td className="py-2 pr-3 text-[var(--ink-soft)]">{accountName(t.account_id)}</td>
+                    <td
+                      className={`whitespace-nowrap py-2 pr-3 text-right tabular-nums font-semibold ${t.kind === 'expense' ? 'text-[var(--danger)]' : 'text-[var(--accent-ink)]'}`}
+                    >
+                      {t.kind === 'expense' ? '−' : '+'}₹{Number(t.amount).toLocaleString('en-IN')}
+                    </td>
+                    <td className="py-2 pl-1 text-right">
+                      <button
+                        onClick={() => setEditingId(t.id)}
+                        className="text-[var(--ink-soft)] hover:text-[var(--accent-ink)]"
+                        aria-label="Edit transaction"
+                      >
+                        <PencilIcon width={14} height={14} />
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </Card>
@@ -202,8 +276,8 @@ export function FinanceAnalytics() {
   const hasSpend = trend?.some((p) => Number(p.total) > 0)
   const incomeExpenseRows = incomeExpense
     ? [
-        { label: 'Income', total: Number(incomeExpense.income), fill: INCOME_COLOR },
-        { label: 'Expense', total: Number(incomeExpense.expense), fill: EXPENSE_COLOR },
+        { label: 'Income', kind: 'income' as const, total: Number(incomeExpense.income), fill: INCOME_COLOR },
+        { label: 'Expense', kind: 'expense' as const, total: Number(incomeExpense.expense), fill: EXPENSE_COLOR },
       ]
     : []
   const hasIncomeOrExpense = incomeExpenseRows.some((r) => r.total > 0)
@@ -231,7 +305,7 @@ export function FinanceAnalytics() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <Card>
+        <Card data-testid="chart-daily-spend">
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--ink-soft)]">
             Daily spend
           </h2>
@@ -285,7 +359,7 @@ export function FinanceAnalytics() {
           )}
         </Card>
 
-        <Card>
+        <Card data-testid="chart-income-expense">
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--ink-soft)]">
             Income vs expense
           </h2>
@@ -314,13 +388,25 @@ export function FinanceAnalytics() {
                       <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs shadow-sm">
                         <p className="font-medium">{row.label}</p>
                         <p className="tabular-nums font-semibold">₹{row.total.toLocaleString('en-IN')}</p>
+                        {row.total > 0 && <p className="text-[var(--ink-soft)]">Tap to see transactions</p>}
                       </div>
                     )
                   }}
                 />
                 <Bar dataKey="total" radius={[0, 4, 4, 0]} maxBarSize={28}>
                   {incomeExpenseRows.map((row) => (
-                    <Cell key={row.label} fill={row.fill} />
+                    <Cell
+                      key={row.label}
+                      fill={row.fill}
+                      cursor={row.total > 0 ? 'pointer' : 'default'}
+                      onClick={() =>
+                        row.total > 0 &&
+                        setDrilldown({
+                          label: `${row.label} — ${MONTH_NAMES[month - 1]} ${year}`,
+                          params: { start: monthStart, end: monthEnd, kind: row.kind },
+                        })
+                      }
+                    />
                   ))}
                 </Bar>
               </BarChart>
@@ -328,7 +414,7 @@ export function FinanceAnalytics() {
           )}
         </Card>
 
-        <Card>
+        <Card data-testid="chart-by-category">
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--ink-soft)]">By category</h2>
           {loadingCategories && <p className="text-sm text-[var(--ink-soft)]">Loading…</p>}
           {!loadingCategories && categories?.length === 0 && (
@@ -354,7 +440,7 @@ export function FinanceAnalytics() {
           )}
         </Card>
 
-        <Card className="md:col-span-2">
+        <Card className="md:col-span-2" data-testid="chart-by-account">
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--ink-soft)]">By account</h2>
           {loadingAccounts && <p className="text-sm text-[var(--ink-soft)]">Loading…</p>}
           {!loadingAccounts && byAccount?.length === 0 && (
