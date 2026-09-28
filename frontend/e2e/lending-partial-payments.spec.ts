@@ -11,6 +11,7 @@ test('lending supports partial repayments tracked against an account', async ({ 
   await page.getByRole('link', { name: 'Finance' }).click()
 
   // An account to receive the partial repayment into
+  await page.getByRole('button', { name: 'Accounts', exact: true }).click()
   await page.getByRole('button', { name: 'Add your first account' }).click()
   await page.fill('input[placeholder*="HDFC Bank"]', 'Wallet')
   await page.fill('input[placeholder="Current balance"]', '1000')
@@ -34,7 +35,7 @@ test('lending supports partial repayments tracked against an account', async ({ 
   await expect(page.getByText(/₹400 · .* · via Wallet/)).toBeVisible()
 
   // The linked transaction actually moved the account's balance
-  await page.getByRole('button', { name: 'Overview' }).click()
+  await page.getByRole('button', { name: 'Accounts', exact: true }).click()
   await expect(page.getByText('₹1,400').first()).toBeVisible()
 
   // Pay off the rest — should now auto-settle

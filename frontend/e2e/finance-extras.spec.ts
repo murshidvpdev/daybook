@@ -33,7 +33,7 @@ test('credit cards, EMIs, SIPs, and lending all work end to end', async ({ page 
   // Give the SIP a real bank account to debit from (a credit card already
   // counts as "an account" for the tab's own empty-state check, so add one
   // explicitly rather than relying on that gate).
-  await page.getByRole('button', { name: 'Overview' }).click()
+  await page.getByRole('button', { name: 'Accounts', exact: true }).click()
   await page.getByRole('button', { name: 'Add account' }).click()
   await page.fill('input[placeholder*="HDFC Bank"]', 'HDFC Bank')
   await page.getByRole('button', { name: 'Save' }).click()

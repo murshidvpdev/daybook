@@ -1,3 +1,4 @@
+from datetime import date, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -39,6 +40,7 @@ from app.schemas.finance import (
     TransactionUpdate,
 )
 from app.services import finance as service
+from app.services.month_report import month_bounds
 from app.services.reminder import build_reminder_links
 
 router = APIRouter(prefix="/finance", tags=["finance"])
@@ -441,25 +443,50 @@ async def lending_reminder(
 # --- Analytics ---------------------------------------------------------------
 
 
+def _resolve_range(days: int | None, year: int | None, month: int | None) -> tuple[date, date]:
+    """Either an explicit month (year+month) or a rolling window ending today
+    (days, the legacy default) — never both, so a chart can't silently mix
+    "last 30 days" with "September" depending on which param happened to win."""
+    if year is not None and month is not None:
+        return month_bounds(year, month)
+    end = date.today()
+    return end - timedelta(days=(days or 30) - 1), end
+
+
 @router.get("/analytics/spend-trend", response_model=list[SpendTrendPoint])
 async def spend_trend(
-    days: int = 30, user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)
+    days: int | None = None,
+    year: int | None = None,
+    month: int | None = None,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
 ):
-    return await service.spend_trend(db, user_id, days)
+    start, end = _resolve_range(days, year, month)
+    return await service.spend_trend(db, user_id, start, end)
 
 
 @router.get("/analytics/category-breakdown", response_model=list[CategoryBreakdownItem])
 async def category_breakdown(
-    days: int = 30, user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)
+    days: int | None = None,
+    year: int | None = None,
+    month: int | None = None,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
 ):
-    return await service.category_breakdown(db, user_id, days)
+    start, end = _resolve_range(days, year, month)
+    return await service.category_breakdown(db, user_id, start, end)
 
 
 @router.get("/analytics/account-breakdown", response_model=list[AccountBreakdownItem])
 async def account_breakdown(
-    days: int = 30, user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)
+    days: int | None = None,
+    year: int | None = None,
+    month: int | None = None,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
 ):
-    return await service.account_breakdown(db, user_id, days)
+    start, end = _resolve_range(days, year, month)
+    return await service.account_breakdown(db, user_id, start, end)
 
 
 @router.get("/analytics/summary", response_model=FinanceSummaryOut)

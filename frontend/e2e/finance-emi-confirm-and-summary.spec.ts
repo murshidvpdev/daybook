@@ -45,11 +45,13 @@ test('finance summary panel shows total balance, debt, and top spend account', a
   await expect(page.getByText('Good day,')).toBeVisible({ timeout: 15_000 })
 
   await page.getByRole('link', { name: 'Finance' }).click()
+  await page.getByRole('button', { name: 'Accounts', exact: true }).click()
   await page.getByRole('button', { name: 'Add your first account' }).click()
   await page.fill('input[placeholder*="HDFC Bank"]', 'HDFC Bank')
   await page.fill('input[placeholder="Current balance"]', '50000')
   await page.getByRole('button', { name: 'Save' }).click()
 
+  await page.getByRole('button', { name: 'Overview', exact: true }).click()
   await expect(page.getByText('Total balance')).toBeVisible()
   await expect(page.getByText('₹50,000').first()).toBeVisible()
 

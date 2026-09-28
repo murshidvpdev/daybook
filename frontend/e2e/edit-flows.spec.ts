@@ -71,19 +71,22 @@ test('editing an account and a transaction persists the new values', async ({ pa
   await registerAndLogin(page)
 
   await page.getByRole('link', { name: 'Finance' }).click()
+  await page.getByRole('button', { name: 'Accounts', exact: true }).click()
   await page.getByRole('button', { name: 'Add your first account' }).click()
   await page.fill('input[placeholder*="HDFC Bank"]', 'Wallet')
   await page.getByRole('button', { name: 'Save' }).click()
-  await page.fill('input[placeholder="Amount"]', '450')
-  await page.fill('input[placeholder="Note (optional)"]', 'Lunch')
-  await page.getByRole('button', { name: 'Add', exact: true }).click()
-  await expect(page.getByText('Lunch')).toBeVisible()
 
-  // Edit the account name
+  // Edit the account name (Accounts tab)
   await page.getByRole('button', { name: 'Edit account', exact: true }).click()
   await page.getByTestId('edit-account-name').fill('Main Wallet')
   await page.getByRole('button', { name: 'Save' }).click()
   await expect(page.getByText('Main Wallet').first()).toBeVisible()
+
+  await page.getByRole('button', { name: 'Overview', exact: true }).click()
+  await page.fill('input[placeholder="Amount"]', '450')
+  await page.fill('input[placeholder="Note (optional)"]', 'Lunch')
+  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  await expect(page.getByText('Lunch')).toBeVisible()
 
   // Edit the transaction note and amount
   await page.getByRole('button', { name: 'Edit transaction', exact: true }).click()

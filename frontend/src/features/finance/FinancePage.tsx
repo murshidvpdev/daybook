@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { AccountsTab } from './AccountsTab'
 import { CreditCardsTab } from './CreditCardsTab'
 import { EmisTab } from './EmisTab'
 import { LendingTab } from './LendingTab'
@@ -7,6 +8,7 @@ import { SipsTab } from './SipsTab'
 
 const TABS = [
   { key: 'overview', label: 'Overview' },
+  { key: 'accounts', label: 'Accounts' },
   { key: 'cards', label: 'Credit Cards' },
   { key: 'emis', label: 'EMIs' },
   { key: 'sips', label: 'SIPs' },
@@ -38,7 +40,8 @@ export function FinancePage() {
         ))}
       </div>
 
-      {tab === 'overview' && <OverviewTab onOpenCreditCards={() => setTab('cards')} />}
+      {tab === 'overview' && <OverviewTab />}
+      {tab === 'accounts' && <AccountsTab onOpenCreditCards={() => setTab('cards')} />}
       {tab === 'cards' && <CreditCardsTab />}
       {tab === 'emis' && <EmisTab />}
       {tab === 'sips' && <SipsTab />}

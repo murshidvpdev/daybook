@@ -178,3 +178,67 @@ async def test_spend_trend_ignores_dates_before_window(client: AsyncClient, auth
     )
     resp = await client.get("/api/v1/finance/analytics/spend-trend?days=30", headers=auth_headers)
     assert all(float(p["total"]) == 0.0 for p in resp.json())
+
+
+async def test_analytics_accept_explicit_year_and_month(client: AsyncClient, auth_headers: dict[str, str]) -> None:
+    account = await client.post(
+        "/api/v1/finance/accounts", headers=auth_headers, json={"name": "Wallet", "account_type": "cash"}
+    )
+    account_id = account.json()["id"]
+    category = await client.post(
+        "/api/v1/finance/categories", headers=auth_headers, json={"name": "Food", "kind": "expense"}
+    )
+    # Inside March 2026
+    await client.post(
+        "/api/v1/finance/transactions",
+        headers=auth_headers,
+        json={
+            "account_id": account_id,
+            "kind": "expense",
+            "amount": "300",
+            "category_id": category.json()["id"],
+            "occurred_on": "2026-03-15",
+        },
+    )
+    # Outside March 2026 — must not leak into the March-scoped results
+    await client.post(
+        "/api/v1/finance/transactions",
+        headers=auth_headers,
+        json={"account_id": account_id, "kind": "expense", "amount": "999", "occurred_on": "2026-04-01"},
+    )
+
+    trend = await client.get("/api/v1/finance/analytics/spend-trend?year=2026&month=3", headers=auth_headers)
+    assert trend.status_code == 200
+    points = trend.json()
+    assert len(points) == 31  # March has 31 days
+    assert sum(float(p["total"]) for p in points) == 300.0
+    assert float(next(p for p in points if p["date"] == "2026-03-15")["total"]) == 300.0
+
+    categories = await client.get(
+        "/api/v1/finance/analytics/category-breakdown?year=2026&month=3", headers=auth_headers
+    )
+    assert [(c["category_name"], float(c["total"])) for c in categories.json()] == [("Food", 300.0)]
+
+    accounts_breakdown = await client.get(
+        "/api/v1/finance/analytics/account-breakdown?year=2026&month=3", headers=auth_headers
+    )
+    assert [(a["account_name"], float(a["total"])) for a in accounts_breakdown.json()] == [("Wallet", 300.0)]
+
+
+async def test_analytics_year_month_takes_priority_over_days(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    account = await client.post(
+        "/api/v1/finance/accounts", headers=auth_headers, json={"name": "Wallet", "account_type": "cash"}
+    )
+    await client.post(
+        "/api/v1/finance/transactions",
+        headers=auth_headers,
+        json={"account_id": account.json()["id"], "kind": "expense", "amount": "50", "occurred_on": "2020-01-10"},
+    )
+    # `days` would normally look at a window ending today, which would miss
+    # this 2020 transaction entirely — year/month must win when both are sent.
+    resp = await client.get(
+        "/api/v1/finance/analytics/category-breakdown?days=7&year=2020&month=1", headers=auth_headers
+    )
+    assert float(resp.json()[0]["total"]) == 50.0

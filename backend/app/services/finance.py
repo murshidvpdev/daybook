@@ -836,8 +836,7 @@ async def delete_lending_payment(db: AsyncSession, user_id: UUID, lending_id: UU
 # Deterministic SQL aggregation only — no room for an LLM to "estimate" a total.
 
 
-async def spend_trend(db: AsyncSession, user_id: UUID, days: int = 30) -> list[dict]:
-    start = date.today() - timedelta(days=days - 1)
+async def spend_trend(db: AsyncSession, user_id: UUID, start: date, end: date) -> list[dict]:
     rows = (
         await db.execute(
             select(Transaction.occurred_on, func.sum(Transaction.amount))
@@ -845,19 +844,20 @@ async def spend_trend(db: AsyncSession, user_id: UUID, days: int = 30) -> list[d
                 Transaction.user_id == user_id,
                 Transaction.kind == "expense",
                 Transaction.occurred_on >= start,
+                Transaction.occurred_on <= end,
             )
             .group_by(Transaction.occurred_on)
         )
     ).all()
     totals_by_day = {row[0]: float(row[1]) for row in rows}
+    num_days = (end - start).days + 1
     return [
         {"date": start + timedelta(days=i), "total": totals_by_day.get(start + timedelta(days=i), 0.0)}
-        for i in range(days)
+        for i in range(num_days)
     ]
 
 
-async def category_breakdown(db: AsyncSession, user_id: UUID, days: int = 30) -> list[dict]:
-    start = date.today() - timedelta(days=days - 1)
+async def category_breakdown(db: AsyncSession, user_id: UUID, start: date, end: date) -> list[dict]:
     category_name = func.coalesce(TransactionCategory.name, "Uncategorized").label("category_name")
     rows = (
         await db.execute(
@@ -868,6 +868,7 @@ async def category_breakdown(db: AsyncSession, user_id: UUID, days: int = 30) ->
                 Transaction.user_id == user_id,
                 Transaction.kind == "expense",
                 Transaction.occurred_on >= start,
+                Transaction.occurred_on <= end,
             )
             .group_by(category_name)
             .order_by(func.sum(Transaction.amount).desc())
@@ -876,8 +877,7 @@ async def category_breakdown(db: AsyncSession, user_id: UUID, days: int = 30) ->
     return [{"category_name": row[0], "total": float(row[1])} for row in rows]
 
 
-async def account_breakdown(db: AsyncSession, user_id: UUID, days: int = 30) -> list[dict]:
-    start = date.today() - timedelta(days=days - 1)
+async def account_breakdown(db: AsyncSession, user_id: UUID, start: date, end: date) -> list[dict]:
     rows = (
         await db.execute(
             select(FinancialAccount.name, FinancialAccount.account_type, func.sum(Transaction.amount))
@@ -887,6 +887,7 @@ async def account_breakdown(db: AsyncSession, user_id: UUID, days: int = 30) -> 
                 Transaction.user_id == user_id,
                 Transaction.kind == "expense",
                 Transaction.occurred_on >= start,
+                Transaction.occurred_on <= end,
             )
             .group_by(FinancialAccount.id, FinancialAccount.name, FinancialAccount.account_type)
             .order_by(func.sum(Transaction.amount).desc())
@@ -939,7 +940,8 @@ async def finance_summary(db: AsyncSession, user_id: UUID) -> dict:
         )
     )
 
-    top_accounts = await account_breakdown(db, user_id, days=30)
+    today = date.today()
+    top_accounts = await account_breakdown(db, user_id, today - timedelta(days=29), today)
 
     return {
         "total_balance": total_balance,

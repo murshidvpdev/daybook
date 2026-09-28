@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-test('a credit card shows up in Overview, is selectable for a plain expense, and links back to its tab', async ({
+test('a credit card shows up in Accounts, is selectable for a plain expense, and links back to its tab', async ({
   page,
 }) => {
   const email = `overview-cards${Date.now()}@example.com`
@@ -17,15 +17,19 @@ test('a credit card shows up in Overview, is selectable for a plain expense, and
   await page.getByRole('button', { name: 'Save' }).click()
   await expect(page.getByText('HDFC Regalia')).toBeVisible()
 
-  // The card shows up on Overview too, not just its own tab
-  await page.getByRole('button', { name: 'Overview' }).click()
+  // The card shows up in Accounts too, not just its own tab
+  await page.getByRole('button', { name: 'Accounts', exact: true }).click()
   await expect(page.getByText('HDFC Regalia')).toBeVisible()
   await expect(page.getByText('View card →')).toBeVisible()
 
-  // It's selectable in the plain quick-add form — no need to go to the card's own "+ Add spend"
+  // Add a plain account too, from the same tab
   await page.getByRole('button', { name: 'Add account' }).click()
   await page.fill('input[placeholder*="HDFC Bank"]', 'Wallet')
   await page.getByRole('button', { name: 'Save' }).click()
+
+  // The card is selectable in Overview's plain quick-add form — no need to
+  // go to the card's own "+ Add spend"
+  await page.getByRole('button', { name: 'Overview', exact: true }).click()
   await page.getByRole('combobox', { name: 'Account' }).selectOption({ label: 'HDFC Regalia' })
   await page.fill('input[placeholder="Amount"]', '800')
   await page.fill('input[placeholder="Note (optional)"]', 'Dinner on the card')
@@ -33,6 +37,7 @@ test('a credit card shows up in Overview, is selectable for a plain expense, and
   await expect(page.getByText('Dinner on the card')).toBeVisible()
 
   // Card balance reflects it, confirming the transaction actually landed on the card's account
+  await page.getByRole('button', { name: 'Accounts', exact: true }).click()
   await expect(page.getByText('₹800').first()).toBeVisible()
 
   // Clicking through actually switches to the Credit Cards tab

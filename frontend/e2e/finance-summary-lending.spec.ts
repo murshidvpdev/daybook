@@ -9,10 +9,12 @@ test('summary shows lending stats and backs lending out of "spent, excl. lending
   await expect(page.getByText('Good day,')).toBeVisible({ timeout: 15_000 })
 
   await page.getByRole('link', { name: 'Finance' }).click()
+  await page.getByRole('button', { name: 'Accounts', exact: true }).click()
   await page.getByRole('button', { name: 'Add your first account' }).click()
   await page.fill('input[placeholder*="HDFC Bank"]', 'Wallet')
   await page.fill('input[placeholder="Current balance"]', '10000')
   await page.getByRole('button', { name: 'Save' }).click()
+  await page.getByRole('button', { name: 'Overview', exact: true }).click()
 
   // A plain expense.
   await page.fill('input[placeholder="Amount"]', '500')

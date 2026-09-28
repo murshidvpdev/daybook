@@ -59,6 +59,7 @@ test('accounts show a running balance from an opening balance', async ({ page })
   await expect(page.getByText('Good day,')).toBeVisible({ timeout: 15_000 })
 
   await page.getByRole('link', { name: 'Finance' }).click()
+  await page.getByRole('button', { name: 'Accounts', exact: true }).click()
   await page.getByRole('button', { name: 'Add your first account' }).click()
   await page.fill('input[placeholder*="HDFC Bank"]', 'HDFC Bank')
   await page.fill('input[placeholder="Current balance"]', '45000')
@@ -66,6 +67,8 @@ test('accounts show a running balance from an opening balance', async ({ page })
 
   await expect(page.getByText('₹45,000').first()).toBeVisible()
 
+  await page.getByRole('button', { name: 'Overview', exact: true }).click()
+  await expect(page.getByText('₹45,000').first()).toBeVisible()
   await page.fill('input[placeholder="Amount"]', '1000')
   await page.getByRole('button', { name: 'Add', exact: true }).click()
   await expect(page.getByText('₹44,000').first()).toBeVisible()

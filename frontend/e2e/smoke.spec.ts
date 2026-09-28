@@ -30,11 +30,14 @@ test('register, log across every domain, dashboard reflects it', async ({ page }
   await page.getByRole('button', { name: 'Add' }).click()
   await expect(page.getByText('Read')).toBeVisible()
 
-  // Finance — a fresh user always lands on the "add your first account" prompt
+  // Finance — accounts live on their own tab; a fresh user lands on the
+  // "add your first account" prompt there
   await page.getByRole('link', { name: 'Finance' }).click()
+  await page.getByRole('button', { name: 'Accounts', exact: true }).click()
   await page.getByRole('button', { name: 'Add your first account' }).click()
   await page.fill('input[placeholder*="HDFC Bank"]', 'Wallet')
   await page.getByRole('button', { name: 'Save' }).click()
+  await page.getByRole('button', { name: 'Overview', exact: true }).click()
   await page.fill('input[placeholder="Amount"]', '450')
   await page.fill('input[placeholder="Note (optional)"]', 'Lunch')
   await page.getByRole('button', { name: 'Add', exact: true }).click()
