@@ -73,13 +73,12 @@ npm run test:e2e
 
 ## Workflow: dev → prod
 
-Everything ships through this path — there's no separate hosted staging environment, only your own machine as "dev":
+Production is AWS EC2 (backend) + RDS (database) + Cloudflare Pages (frontend) — see [ARCHITECTURE.md §8](ARCHITECTURE.md) for the full picture. Render + Neon (`DEPLOY.md`) is an unused free-tier fallback, not a second production target. There's no separate hosted staging environment, only your own machine as "dev":
 
-1. **Develop locally** against your own Postgres (native setup or `docker compose up --build`), not production's Neon database.
+1. **Develop locally** against your own Postgres (native setup or `docker compose up --build`), not production's RDS database.
 2. **Run `./scripts/check-all.sh`** (or the individual commands under Tests) before pushing anything. This is the "is everything good" gate — don't skip it because a change looks small.
-3. **Push a branch and open a PR**, rather than committing straight to `main`. [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs the same backend/frontend/e2e checks automatically on every PR and on every push to `main` — but critically, Render and Cloudflare Pages auto-deploy on push to `main` regardless of whether that push's CI run has finished or passed. A PR is what actually gets you a CI result *before* anything reaches `main`, not after.
-4. **Merge once CI is green.** That push to `main` triggers Render (backend) and Cloudflare Pages (frontend) to redeploy on their own — see [DEPLOY.md](DEPLOY.md).
-5. **Sync EC2 manually, if it's currently live.** `frontend/functions/api/[[path]].js` can be pointed at a temporary EC2 backend instead of Render (check what it currently points at) — when it is, Render's redeploy alone doesn't reach production traffic, and the EC2 box needs its own rsync + `docker build` + container restart with the new backend code.
+3. **Push a branch and open a PR**, rather than committing straight to `main`. [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs backend/frontend/e2e checks automatically on every PR and every push to `main`.
+4. **Merge once CI is green.** Cloudflare Pages redeploys the frontend on every push to `main`, independent of CI — same caveat as before, it doesn't wait for a green run. The backend is different: a `deploy-ec2` job in `ci.yml` deploys to EC2 (rsync, rebuild, migrate, restart) automatically, but *only* after backend/frontend/e2e all pass — the one deploy path actually gated on tests.
 
 ## Deploying
 

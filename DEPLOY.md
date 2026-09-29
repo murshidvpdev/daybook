@@ -1,5 +1,7 @@
 # Deploying Daybook
 
+> **This is the free-tier fallback path, not what's actually live.** Production runs on AWS EC2 + RDS instead of Render + Neon (see [ARCHITECTURE.md §8](ARCHITECTURE.md)) — that deploys automatically via the `deploy-ec2` job in `.github/workflows/ci.yml`, no manual steps below. This guide is kept in case Render/Neon is ever preferred again.
+
 Three pieces, three free-tier hosts: **Neon** (Postgres), **Render** (API), **Cloudflare Pages** (web app). Your existing local data moves over via `pg_dump`/`pg_restore` — same schema, same rows, just relocated.
 
 Render's free plan sleeps a backend after ~15 minutes idle; the next request takes 30–50s to wake it, then it's instant again. That's the tradeoff for $0/month.
