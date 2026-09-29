@@ -1,15 +1,16 @@
-// Cloudflare Pages Function: proxies everything under /api/* to the Render
-// backend. Exists because Cloudflare's declarative `_redirects` 200-status
-// proxy rule didn't take effect on this project (likely the newer unified
-// Workers+assets pipeline handling `_redirects` differently than classic
-// Pages) — this achieves the same goal explicitly instead: the browser only
-// ever talks to one origin (this Pages domain), so the refresh-token cookie
-// stays a normal same-site cookie rather than needing SameSite=None, which
-// iOS Safari treats unreliably for cross-site cookies.
-// TEMPORARY: pointed at the AWS EC2 backend (see ARCHITECTURE.md / the AWS
-// migration in progress) while CloudFront is blocked on AWS account
-// verification. Revert to "https://daybook-5dls.onrender.com" once the
-// S3 + CloudFront setup is finished — this is a stand-in, not the final home.
+// Cloudflare Pages Function: proxies everything under /api/* to the backend.
+// Exists because Cloudflare's declarative `_redirects` 200-status proxy rule
+// didn't take effect on this project (likely the newer unified Workers+assets
+// pipeline handling `_redirects` differently than classic Pages) — this
+// achieves the same goal explicitly instead: the browser only ever talks to
+// one origin (this Pages domain), so the refresh-token cookie stays a normal
+// same-site cookie rather than needing SameSite=None, which iOS Safari
+// treats unreliably for cross-site cookies.
+// Points at the AWS EC2 backend (t3.micro, Elastic IP) + RDS (see
+// ARCHITECTURE.md) — the permanent production backend/database, not a
+// stand-in for render.yaml/DEPLOY.md's Render+Neon path, which is kept as
+// an unused fallback. Deploys automatically on merge to main (deploy-ec2 job
+// in .github/workflows/ci.yml).
 // Must be a hostname, not a raw IP — Cloudflare's fetch() rejects direct-IP
 // origins with "error code: 1003".
 const BACKEND_ORIGIN = "http://ec2-65-1-218-176.ap-south-1.compute.amazonaws.com";
