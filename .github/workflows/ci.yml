@@ -79,6 +79,13 @@ jobs:
         env:
           DATABASE_URL: postgresql+asyncpg://daybook:daybook@localhost:5432/daybook
           JWT_SECRET: ci-only-secret
+          # Defaults (5/min register, 10/min login) are tuned for a real user,
+          # not a 25-test suite that registers a new account per test against
+          # one long-lived server — trips the limiter and fails ~10 tests with
+          # "Good day," never appearing, unrelated to whatever the PR changed.
+          REGISTER_RATE_LIMIT: 1000/minute
+          LOGIN_RATE_LIMIT: 1000/minute
+          REFRESH_RATE_LIMIT: 1000/minute
         run: |
           uv sync
           uv run alembic upgrade head
