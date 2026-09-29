@@ -42,6 +42,25 @@ def decode_access_token(token: str) -> UUID | None:
     return UUID(sub) if sub else None
 
 
+def create_admin_access_token(admin_id: UUID) -> str:
+    """Signed with admin_jwt_secret, never jwt_secret — a leaked/forged regular
+    user token can never decode as valid here, and vice versa."""
+    expire = datetime.now(UTC) + timedelta(minutes=settings.admin_access_token_expire_minutes)
+    payload = {"sub": str(admin_id), "type": "admin_access", "exp": expire}
+    return jwt.encode(payload, settings.admin_jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def decode_admin_access_token(token: str) -> UUID | None:
+    try:
+        payload = jwt.decode(token, settings.admin_jwt_secret, algorithms=[settings.jwt_algorithm])
+    except JWTError:
+        return None
+    if payload.get("type") != "admin_access":
+        return None
+    sub = payload.get("sub")
+    return UUID(sub) if sub else None
+
+
 def generate_refresh_token() -> str:
     """Opaque random token — the value the client holds. Only its hash is stored."""
     return secrets.token_urlsafe(48)

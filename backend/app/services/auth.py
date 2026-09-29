@@ -38,6 +38,8 @@ async def authenticate_user(db: AsyncSession, email: str, password: str) -> User
     user = await db.scalar(select(User).where(User.email == email))
     if user is None or not verify_password(password, user.hashed_password):
         raise AuthError("Incorrect email or password")
+    if not user.is_active:
+        raise AuthError("This account has been disabled")
     return user
 
 
@@ -71,6 +73,11 @@ async def rotate_refresh_token(db: AsyncSession, raw_refresh_token: str) -> tupl
     user = await db.get(User, session.user_id)
     if user is None:
         raise AuthError("Invalid refresh token")
+    if not user.is_active:
+        # Revoking the presented token (above) is enough by itself to end this
+        # one session; not committing it here would undo that revocation.
+        await db.commit()
+        raise AuthError("This account has been disabled")
 
     await db.commit()
     return await issue_tokens(db, user, session.user_agent)

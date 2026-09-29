@@ -1,5 +1,10 @@
 import type { ReactNode } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
+import { AdminDashboard } from './admin/AdminDashboard'
+import { AdminLayout } from './admin/AdminLayout'
+import { AdminLogin } from './admin/AdminLogin'
+import { useAdminAuth } from './admin/AdminAuthContext'
+import { AdminUserDetail } from './admin/AdminUserDetail'
 import { useAuth } from './auth/AuthContext'
 import { Layout } from './components/Layout'
 import { LoginPage } from './features/auth/LoginPage'
@@ -21,6 +26,12 @@ function RequireAuth({ children }: { children: ReactNode }) {
   return <>{children}</>
 }
 
+function RequireAdmin({ children }: { children: ReactNode }) {
+  const { isLoggedIn } = useAdminAuth()
+  if (!isLoggedIn) return <Navigate to="/admin/login" replace />
+  return <>{children}</>
+}
+
 export default function App() {
   return (
     <Routes>
@@ -39,6 +50,21 @@ export default function App() {
         <Route path="/finance" element={<FinancePage />} />
         <Route path="/fitness" element={<FitnessPage />} />
       </Route>
+
+      {/* Not linked from the regular app nav anywhere — a separate login,
+          separate token, separate everything from the routes above. */}
+      <Route path="/admin/login" element={<AdminLogin />} />
+      <Route
+        element={
+          <RequireAdmin>
+            <AdminLayout />
+          </RequireAdmin>
+        }
+      >
+        <Route path="/admin" element={<AdminDashboard />} />
+        <Route path="/admin/users/:userId" element={<AdminUserDetail />} />
+      </Route>
+
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

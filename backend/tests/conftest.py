@@ -69,3 +69,26 @@ async def auth_headers(client: AsyncClient) -> dict[str, str]:
     )
     token = resp.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest_asyncio.fixture
+async def admin_headers(client: AsyncClient) -> dict[str, str]:
+    """No public endpoint creates an admin — this inserts one directly into
+    the same test database the `client` fixture just migrated, exactly how
+    scripts/create_admin.py does it against a real one."""
+    from app.core.security import hash_password
+    from app.models.admin import AdminUser
+
+    engine = create_async_engine(TEST_DATABASE_URL)
+    session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
+    async with session_factory() as session:
+        session.add(AdminUser(email="admin@example.com", hashed_password=hash_password("correcthorsebattery")))
+        await session.commit()
+    await engine.dispose()
+
+    resp = await client.post(
+        "/api/v1/admin/auth/login",
+        json={"email": "admin@example.com", "password": "correcthorsebattery"},
+    )
+    token = resp.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}

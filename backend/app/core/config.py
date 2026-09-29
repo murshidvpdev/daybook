@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 30
 
+    # A separate secret from jwt_secret, deliberately — an admin token and a
+    # regular user token must never be valid against each other's decoder,
+    # even if a claim like "is_admin" were somehow forged or confused.
+    admin_jwt_secret: str = "dev-only-secret-3f8a2c9d1b7e4f6a0c5d8b3e7f2a1c9d"
+    admin_access_token_expire_minutes: int = 120
+
     cors_origins: list[str] = ["http://localhost:5173"]
 
     # Deliberately overridable per environment: production should stay tight
@@ -28,19 +34,20 @@ class Settings(BaseSettings):
     register_rate_limit: str = "5/minute"
     login_rate_limit: str = "10/minute"
     refresh_rate_limit: str = "30/minute"
+    admin_login_rate_limit: str = "10/minute"
 
     @model_validator(mode="after")
     def _refuse_weak_secret_outside_development(self) -> "Settings":
         """Fails at startup, not at the first login someone else attempts —
         a known or short JWT secret in a publicly reachable deployment lets
         anyone forge an access token for any user_id."""
-        if self.environment != "development" and (
-            self.jwt_secret in _KNOWN_DEV_SECRETS or len(self.jwt_secret) < 32
-        ):
-            raise ValueError(
-                "JWT_SECRET must be a long random value outside development — "
-                "generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
-            )
+        if self.environment != "development":
+            for name, value in (("JWT_SECRET", self.jwt_secret), ("ADMIN_JWT_SECRET", self.admin_jwt_secret)):
+                if value in _KNOWN_DEV_SECRETS or len(value) < 32:
+                    raise ValueError(
+                        f"{name} must be a long random value outside development — "
+                        "generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+                    )
         return self
 
 
