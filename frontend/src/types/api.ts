@@ -243,3 +243,48 @@ export interface PeriodReport {
   lending_borrowed: string
   lending_repaid: string
 }
+
+export interface AdminStats {
+  total_users: number
+  new_users_today: number
+  new_users_this_week: number
+  active_users_today: number
+  active_users_this_week: number
+}
+
+export interface AdminUserListItem {
+  id: string
+  email: string
+  display_name: string | null
+  created_at: string
+  is_active: boolean
+  active_today: boolean
+  transactions_count: number
+  routines_count: number
+  habits_count: number
+  workouts_count: number
+}
+
+export interface AdminUserDetail {
+  id: string
+  email: string
+  display_name: string | null
+  created_at: string
+  is_active: boolean
+  finance: {
+    total_balance: string
+    net_worth: string
+    spent_this_month: string
+    income_this_month: string
+  }
+  recent_transactions: {
+    id: string
+    kind: 'income' | 'expense'
+    amount: string
+    note: string | null
+    occurred_on: string
+  }[]
+  routines: { id: string; name: string; time_of_day: string; item_count: number }[]
+  habits: { id: string; name: string; cadence: string; is_archived: boolean }[]
+  recent_workouts: { id: string; name: string; performed_on: string; duration_minutes: number | null }[]
+}

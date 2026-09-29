@@ -1,4 +1,5 @@
 from app.db.base import Base
+from app.models.admin import AdminUser
 from app.models.finance import (
     EMI,
     SIP,
@@ -17,6 +18,7 @@ from app.models.user import User, UserSession
 __all__ = [
     "EMI",
     "SIP",
+    "AdminUser",
     "Base",
     "CreditCard",
     "CreditCardBill",
