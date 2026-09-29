@@ -76,8 +76,16 @@ export function OverviewTab() {
             <Card className="text-center text-sm text-[var(--ink-soft)]">No transactions yet.</Card>
           )}
           <div className="flex flex-col gap-2">
-            {transactions?.map((t) =>
-              editingTxnId === t.id ? (
+            {transactions?.map((t) => {
+              // A just-added transaction renders under a temp "optimistic-*"
+              // id until the real one arrives via invalidation — at which
+              // point its row remounts under the real id (different React
+              // key). Editing/deleting before that swap would PATCH/DELETE
+              // an id that doesn't exist server-side, and — worse — could
+              // unmount an edit form mid-keystroke the instant the real data
+              // lands. Both go away by simply not offering those actions yet.
+              const isSaving = t.id.startsWith('optimistic-')
+              return editingTxnId === t.id ? (
                 <EditTransactionForm
                   key={t.id}
                   transaction={t}
@@ -88,7 +96,7 @@ export function OverviewTab() {
                 <Card key={t.id} className="flex items-center justify-between py-3">
                   <div>
                     <p className="text-sm font-medium">{t.note || (t.kind === 'expense' ? 'Expense' : 'Income')}</p>
-                    <p className="text-xs text-[var(--ink-soft)]">{t.occurred_on}</p>
+                    <p className="text-xs text-[var(--ink-soft)]">{isSaving ? 'Saving…' : t.occurred_on}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <span
@@ -98,7 +106,8 @@ export function OverviewTab() {
                     </span>
                     <button
                       onClick={() => setEditingTxnId(t.id)}
-                      className="text-[var(--ink-soft)] hover:text-[var(--accent-ink)]"
+                      disabled={isSaving}
+                      className="text-[var(--ink-soft)] hover:text-[var(--accent-ink)] disabled:opacity-30"
                       aria-label="Edit transaction"
                     >
                       <PencilIcon width={15} height={15} />
@@ -107,15 +116,16 @@ export function OverviewTab() {
                       onClick={() => {
                         if (confirm('Delete this transaction?')) deleteTransaction.mutate(t.id)
                       }}
-                      className="text-[var(--ink-soft)] hover:text-[var(--danger)]"
+                      disabled={isSaving}
+                      className="text-[var(--ink-soft)] hover:text-[var(--danger)] disabled:opacity-30"
                       aria-label="Delete transaction"
                     >
                       <TrashIcon width={15} height={15} />
                     </button>
                   </div>
                 </Card>
-              ),
-            )}
+              )
+            })}
           </div>
         </>
       )}
