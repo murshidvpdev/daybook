@@ -119,6 +119,14 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
 
+      - name: Diagnose deploy key (no secret bytes printed)
+        run: |
+          echo "line count: $(wc -l < ~/.ssh/deploy_key)"
+          echo "byte count: $(wc -c < ~/.ssh/deploy_key)"
+          echo "first line: $(sed -n '1p' ~/.ssh/deploy_key | cut -c1-30)..."
+          echo "last line:  $(tail -n1 ~/.ssh/deploy_key | cut -c1-30)..."
+          ssh-keygen -y -f ~/.ssh/deploy_key -P "" > /dev/null && echo "ssh-keygen: key parses OK" || echo "ssh-keygen: FAILED to parse key"
+
       - name: Sync backend code
         run: |
           rsync -avz --delete \
