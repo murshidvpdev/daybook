@@ -35,7 +35,19 @@ npm install
 npm run dev   # http://localhost:5173 — proxies /api to :8000
 ```
 
-`docker-compose.yml` at the repo root brings up Postgres in a container instead of a local install, if you'd rather not install Postgres directly — `docker compose up -d db`, then point `DATABASE_URL` in `backend/.env` at `localhost:5432` with the compose file's credentials.
+### Or: everything in Docker
+
+`docker-compose.yml` at the repo root can run the whole stack — Postgres, backend, and frontend — with no local Python/Node/Postgres install at all:
+
+```bash
+docker compose up --build   # http://localhost:5173, proxying /api to the backend container
+```
+
+Migrations run automatically on backend startup. This is for local dev only — production still deploys as described below (Render + Cloudflare Pages + Neon), not from these Dockerfiles' compose wiring. Rebuild (`--build`) after changing backend or frontend code; neither container hot-reloads from source.
+
+This Postgres is a separate database from whatever you run natively (a local install, or `docker compose up -d db` below) — same default credentials, different data, since the backend container talks to it over Docker's internal network rather than the host's `localhost:5432`. Don't expect data logged through one to show up via the other.
+
+If you'd rather run backend/frontend natively but skip installing Postgres, bring up just the database instead — `docker compose up -d db`, then point `DATABASE_URL` in `backend/.env` at `localhost:5432` with the compose file's credentials.
 
 ## Tests
 
