@@ -69,6 +69,18 @@ npm run lint
 npm run test:e2e
 ```
 
+`./scripts/check-all.sh` from the repo root runs all of the above in one shot (backend lint + tests, frontend type-check + lint + build, e2e) — start the backend and frontend dev servers first, from Setup above, then run it. This is exactly what CI runs; green here means CI will be green too.
+
+## Workflow: dev → prod
+
+Everything ships through this path — there's no separate hosted staging environment, only your own machine as "dev":
+
+1. **Develop locally** against your own Postgres (native setup or `docker compose up --build`), not production's Neon database.
+2. **Run `./scripts/check-all.sh`** (or the individual commands under Tests) before pushing anything. This is the "is everything good" gate — don't skip it because a change looks small.
+3. **Push a branch and open a PR**, rather than committing straight to `main`. [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs the same backend/frontend/e2e checks automatically on every PR and on every push to `main` — but critically, Render and Cloudflare Pages auto-deploy on push to `main` regardless of whether that push's CI run has finished or passed. A PR is what actually gets you a CI result *before* anything reaches `main`, not after.
+4. **Merge once CI is green.** That push to `main` triggers Render (backend) and Cloudflare Pages (frontend) to redeploy on their own — see [DEPLOY.md](DEPLOY.md).
+5. **Sync EC2 manually, if it's currently live.** `frontend/functions/api/[[path]].js` can be pointed at a temporary EC2 backend instead of Render (check what it currently points at) — when it is, Render's redeploy alone doesn't reach production traffic, and the EC2 box needs its own rsync + `docker build` + container restart with the new backend code.
+
 ## Deploying
 
 See [DEPLOY.md](DEPLOY.md) — free-tier hosting on Neon (Postgres), Render (API), and Cloudflare Pages (web app), including how to move existing local data over.
