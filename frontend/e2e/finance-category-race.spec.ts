@@ -48,7 +48,10 @@ test('submitting right after creating a new category still assigns it, even on a
 
   await page.waitForTimeout(500)
   await page.reload()
-  await expect(page.getByText('Fast checkout')).toBeVisible()
+  // A reload re-fetches everything from scratch (auth, all Finance queries) —
+  // on a slower CI runner that can genuinely take longer than the default
+  // 5s expect timeout, same as any other post-navigation assertion here.
+  await expect(page.getByText('Fast checkout')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByTestId('chart-by-category')).toContainText('Groceries')
   await expect(page.getByTestId('chart-by-category')).not.toContainText('Uncategorized')
 })
