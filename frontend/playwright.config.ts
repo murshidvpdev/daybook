@@ -3,6 +3,12 @@ import { defineConfig } from '@playwright/test'
 export default defineConfig({
   testDir: './e2e',
   timeout: 30_000,
+  // Every test shares one backend + one frontend dev server (see webServer
+  // below) rather than each worker getting its own — running workers in
+  // parallel makes them race each other's requests against that one shared
+  // server, causing intermittent "element not stable" / stale-data failures
+  // that have nothing to do with the code under test.
+  workers: 1,
   use: {
     baseURL: 'http://localhost:5173',
     // Locally, set PLAYWRIGHT_CHANNEL=chrome to drive system Chrome instead of

@@ -1,7 +1,11 @@
 services:
+  # No restart policy on any service here, deliberately — these are dev
+  # containers you start when you want them. "unless-stopped" would bring
+  # them back silently after a Docker Desktop restart, squatting on ports
+  # 8000/5173/5432 and shadowing whatever you're running natively there,
+  # which is exactly the confusing state this comment is here to prevent.
   db:
     image: postgres:16-alpine
-    restart: unless-stopped
     environment:
       POSTGRES_USER: daybook
       POSTGRES_PASSWORD: daybook
@@ -21,7 +25,6 @@ services:
   backend:
     build:
       context: ./backend
-    restart: unless-stopped
     environment:
       ENVIRONMENT: development
       DATABASE_URL: postgresql+asyncpg://daybook:daybook@db:5432/daybook
@@ -41,7 +44,6 @@ services:
   frontend:
     build:
       context: ./frontend
-    restart: unless-stopped
     ports:
       - "5173:80"
     depends_on:
