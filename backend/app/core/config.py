@@ -27,6 +27,13 @@ class Settings(BaseSettings):
 
     cors_origins: list[str] = ["http://localhost:5173"]
 
+    # The origin Claude (or any MCP client) reaches this API through — in
+    # production the Cloudflare Pages domain, not EC2's own hostname. The MCP
+    # connector's OAuth issuer, endpoint URLs, and resource identifier are all
+    # built from it, so it has to be the URL the outside world actually uses.
+    public_url: str = "http://localhost:8000"
+    mcp_access_token_expire_minutes: int = 60
+
     # Deliberately overridable per environment: production should stay tight
     # (these are the numbers a real single user ever needs), while local dev
     # running a burst of E2E tests against one long-lived server process from
@@ -48,6 +55,10 @@ class Settings(BaseSettings):
                         f"{name} must be a long random value outside development — "
                         "generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
                     )
+            if not self.public_url.startswith("https://"):
+                # OAuth clients refuse a non-HTTPS issuer, so this would only
+                # surface as a connector that silently fails to authorize.
+                raise ValueError("PUBLIC_URL must be the public https:// origin outside development")
         return self
 
 

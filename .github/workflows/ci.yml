@@ -132,10 +132,15 @@ jobs:
           ssh -i ~/.ssh/deploy_key "ec2-user@${{ secrets.EC2_HOST }}" '
             set -e
             cd ~/backend
+            # Not a secret, so it lives here rather than in the server-side .env:
+            # the public origin the MCP connector advertises (backend/app/mcp/).
+            # Passed to the migrate step too, so a settings error fails the
+            # deploy before the running container is stopped.
+            PUBLIC_URL=https://daybook-d5a.pages.dev
             docker build -t daybook-api .
-            docker run --rm --env-file .env daybook-api uv run alembic upgrade head
+            docker run --rm --env-file .env -e PUBLIC_URL=$PUBLIC_URL daybook-api uv run alembic upgrade head
             docker stop daybook-api || true
             docker rm daybook-api || true
-            docker run -d --name daybook-api --restart unless-stopped -p 80:8000 --env-file .env daybook-api
+            docker run -d --name daybook-api --restart unless-stopped -p 80:8000 --env-file .env -e PUBLIC_URL=$PUBLIC_URL daybook-api
             timeout 30 bash -c "until curl -sf http://localhost/health; do sleep 1; done"
           '

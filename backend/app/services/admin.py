@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.security import hash_password, verify_password
+from app.mcp.oauth import revoke_user_grants
 from app.models.admin import AdminUser
 from app.models.finance import Transaction
 from app.models.fitness import WorkoutSession
@@ -159,6 +160,7 @@ async def reset_user_password(db: AsyncSession, user_id: UUID, new_password: str
     sessions = (await db.scalars(select(UserSession).where(UserSession.user_id == user_id))).all()
     for session in sessions:
         session.revoked_at = datetime.now(UTC)
+    await revoke_user_grants(db, user_id)  # connected MCP clients (e.g. Claude) too
     await db.commit()
 
 
@@ -169,6 +171,7 @@ async def set_user_active(db: AsyncSession, user_id: UUID, is_active: bool) -> N
         sessions = (await db.scalars(select(UserSession).where(UserSession.user_id == user_id))).all()
         for session in sessions:
             session.revoked_at = datetime.now(UTC)
+        await revoke_user_grants(db, user_id)
     await db.commit()
 
 
