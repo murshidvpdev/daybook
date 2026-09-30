@@ -2,7 +2,9 @@
 
 One ledger for routine, health, fitness, and money. See the [architecture blueprint](https://claude.ai/code/artifact/8cba4e4e-a519-422a-bc92-c16c252273e4) for the full product/architecture analysis this MVP implements.
 
-Current scope (M0–M2 of the roadmap): auth, dashboard, routine, habits, finance, fitness — manual entry only, no Apple Health or AI yet.
+Current scope (M0–M2 of the roadmap): auth, dashboard, routine, habits, finance, fitness — manual entry only, no Apple Health yet.
+
+**Use it from Claude:** in Claude (web, desktop, or mobile) go to Settings → Connectors → Add custom connector, paste `https://daybook-d5a.pages.dev/mcp`, and sign in with your Daybook account. See [ARCHITECTURE.md §3.3.1](ARCHITECTURE.md) for how it works.
 
 ## Stack
 

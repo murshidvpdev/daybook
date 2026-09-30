@@ -178,6 +178,40 @@ function. They're kept separate here because:
   regardless of what your local `.env` relaxes them to (see §6.1), so
   tests always verify real production behavior.
 
+### 3.3.1 The Claude connector (remote MCP server)
+
+Anyone with a Daybook account can use it from Claude — Settings →
+Connectors → Add custom connector → `https://daybook-d5a.pages.dev/mcp` —
+and then ask things like "what did I spend on food this month?" or "mark
+my morning run done". Code lives in `backend/app/mcp/`.
+
+```
+Claude ──► /mcp (401 + where to log in) ──► /.well-known/... discovery
+       ──► /oauth/register ──► /oauth/authorize ──► /oauth/login (our page:
+           email + password) ──► back to Claude with a code ──► /oauth/token
+       ──► /mcp with a bearer token ──► tools
+```
+
+- **It's an OAuth 2.1 server**, because that's how MCP clients sign a user
+  in. The MCP SDK supplies the protocol endpoints and their checks (PKCE,
+  redirect URI matching, code expiry); `app/mcp/oauth.py` is just the
+  storage — `oauth_clients`, single-use `oauth_authorization_codes`, and
+  `oauth_grants` (one row per user × connected client, holding hashed
+  access/refresh tokens that rotate on every refresh).
+- **Endpoints live under `/oauth`, not the site root**, because the SDK's
+  default `/register` collides with the web app's sign-up page on the same
+  Cloudflare domain.
+- **Tools call the normal `/api/v1` routes in-process** as the token's
+  user (`app/mcp/server.py`), so they inherit the same per-user scoping as
+  the web app — `test_tools_only_see_the_connected_users_data` is the
+  regression test for that, the MCP twin of
+  `test_cannot_access_another_users_routine`.
+- **Revocation**: disabling an account or resetting its password in the
+  admin panel deletes the user's grants, and every token check also
+  re-checks `is_active`.
+- `PUBLIC_URL` (set in `ci.yml`'s deploy step) is what the metadata
+  advertises, since EC2 only ever sees Cloudflare's proxied requests.
+
 ### 3.4 The database
 
 - **Postgres**, accessed through **SQLAlchemy 2.0's async ORM** (not raw

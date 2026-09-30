@@ -12,6 +12,7 @@ from app.models.finance import (
 )
 from app.models.fitness import Exercise, ExerciseSet, WorkoutSession
 from app.models.habit import Habit, HabitCompletion
+from app.models.oauth import OAuthAuthorizationCode, OAuthClient, OAuthGrant
 from app.models.routine import Routine, RoutineCompletion, RoutineItem
 from app.models.user import User, UserSession
 
@@ -28,6 +29,9 @@ __all__ = [
     "Habit",
     "HabitCompletion",
     "Lending",
+    "OAuthAuthorizationCode",
+    "OAuthClient",
+    "OAuthGrant",
     "Routine",
     "RoutineCompletion",
     "RoutineItem",
