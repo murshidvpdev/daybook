@@ -15,6 +15,7 @@ import type {
   Transaction,
 } from '../../types/api'
 import { EditTransactionForm } from './EditTransactionForm'
+import { MonthlyCashflowCard } from './MonthlyCashflowCard'
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -303,6 +304,16 @@ export function FinanceAnalytics() {
           →
         </button>
       </div>
+
+      <MonthlyCashflowCard
+        year={year}
+        month={month}
+        onSelectMonth={(y, m) => {
+          setYear(y)
+          setMonth(m)
+          setDrilldown(null)
+        }}
+      />
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card data-testid="chart-daily-spend">

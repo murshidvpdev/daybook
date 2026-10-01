@@ -1002,3 +1002,76 @@ async def finance_summary(db: AsyncSession, user_id: UUID) -> dict:
         "outstanding_borrowed": float(outstanding_borrowed or 0),
         "top_spend_account": top_accounts[0] if top_accounts else None,
     }
+
+
+async def monthly_cashflow(db: AsyncSession, user_id: UUID, year: int, month: int, months: int) -> list[dict]:
+    """Earned vs spent per month for the `months` months ending at year/month,
+    oldest first. Plain income/expense totals overstate both sides: borrowing
+    from a friend, a friend paying you back, and paying off a card bill all
+    post as "income", and lending money out posts as "expense". So this splits
+    every lending-linked transaction into its own lending_in/lending_out
+    bucket and drops credit-card-side income (bill payments) entirely,
+    leaving `income` as what you actually earned (salary and the like) and
+    `spent` as what's really gone."""
+    month_starts: list[date] = []
+    y, m = year, month
+    for _ in range(months):
+        month_starts.append(date(y, m, 1))
+        y, m = (y, m - 1) if m > 1 else (y - 1, 12)
+    month_starts.reverse()
+    range_start = month_starts[0]
+    range_end = (date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)) - timedelta(days=1)
+
+    lending_txn_ids = (
+        select(Lending.transaction_id).where(Lending.user_id == user_id, Lending.transaction_id.is_not(None))
+    ).union(
+        select(LendingPayment.transaction_id).where(
+            LendingPayment.user_id == user_id, LendingPayment.transaction_id.is_not(None)
+        )
+    )
+    is_lending = Transaction.id.in_(lending_txn_ids)
+    is_card = FinancialAccount.account_type == "credit_card"
+    txn_year = func.extract("year", Transaction.occurred_on)
+    txn_month = func.extract("month", Transaction.occurred_on)
+
+    rows = (
+        await db.execute(
+            select(
+                txn_year,
+                txn_month,
+                func.coalesce(
+                    func.sum(Transaction.amount).filter(Transaction.kind == "income", ~is_lending, ~is_card), 0
+                ),
+                func.coalesce(func.sum(Transaction.amount).filter(Transaction.kind == "income", is_lending), 0),
+                func.coalesce(func.sum(Transaction.amount).filter(Transaction.kind == "expense", ~is_lending), 0),
+                func.coalesce(func.sum(Transaction.amount).filter(Transaction.kind == "expense", is_lending), 0),
+            )
+            .select_from(Transaction)
+            .join(FinancialAccount, Transaction.account_id == FinancialAccount.id)
+            .where(
+                Transaction.user_id == user_id,
+                Transaction.occurred_on >= range_start,
+                Transaction.occurred_on <= range_end,
+            )
+            .group_by(txn_year, txn_month)
+        )
+    ).all()
+    by_month = {(int(row[0]), int(row[1])): row[2:] for row in rows}
+
+    out = []
+    for start in month_starts:
+        income, lending_in, spent, lending_out = (float(v) for v in by_month.get((start.year, start.month), (0, 0, 0, 0)))
+        saved = income - spent
+        out.append(
+            {
+                "year": start.year,
+                "month": start.month,
+                "income": income,
+                "spent": spent,
+                "saved": saved,
+                "savings_rate": round(saved / income * 100, 1) if income > 0 else None,
+                "lending_in": lending_in,
+                "lending_out": lending_out,
+            }
+        )
+    return out

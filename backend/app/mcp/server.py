@@ -219,6 +219,16 @@ async def get_spending_analytics(days: int | None = None, year: int | None = Non
     return json.dumps({"by_category": by_category, "income_vs_expense": income_vs_expense}, indent=2)
 
 
+@mcp.tool(annotations=READ_ONLY)
+async def get_monthly_cashflow(year: int | None = None, month: int | None = None, months: int = 6) -> str:
+    """Earned vs spent vs saved, per month, for the `months` months (1-24) ending at `year`/`month`
+    (default: the current month), oldest first. Prefer this over income_vs_expense for "how much did I
+    earn / save": `income` is real earnings only (borrowed money, friends' repayments, and card bill
+    payments are excluded), `spent` excludes money lent out, `saved` = income - spent, and lending
+    money in/out is reported separately as `lending_in` / `lending_out`."""
+    return await _get("/finance/analytics/monthly-cashflow", year=year, month=month, months=months)
+
+
 # --- Fitness -----------------------------------------------------------------
 
 

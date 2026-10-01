@@ -2,7 +2,7 @@ from datetime import date, timedelta
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user_id
@@ -32,6 +32,7 @@ from app.schemas.finance import (
     LendingOut,
     LendingPaymentCreate,
     LendingUpdate,
+    MonthlyCashflowOut,
     ReminderLinksOut,
     SIPCreate,
     SIPOut,
@@ -521,6 +522,20 @@ async def income_vs_expense(
 ):
     start, end = _resolve_range(days, year, month)
     return await service.income_vs_expense(db, user_id, start, end)
+
+
+@router.get("/analytics/monthly-cashflow", response_model=list[MonthlyCashflowOut])
+async def monthly_cashflow(
+    year: int | None = None,
+    month: int | None = Query(None, ge=1, le=12),
+    months: int = Query(6, ge=1, le=24),
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Earned vs spent vs saved for the `months` months ending at year/month
+    (default: the current month), oldest first."""
+    today = date.today()
+    return await service.monthly_cashflow(db, user_id, year or today.year, month or today.month, months)
 
 
 @router.get("/analytics/summary", response_model=FinanceSummaryOut)

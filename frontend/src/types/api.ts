@@ -149,6 +149,17 @@ export interface IncomeExpense {
   expense: string
 }
 
+export interface MonthlyCashflow {
+  year: number
+  month: number
+  income: string // earned — excludes borrowed money, friends' repayments, card bill payments
+  spent: string // excludes money lent out and repayments of your own debts
+  saved: string // income - spent; negative when you spent more than you earned
+  savings_rate: number | null // % of income saved; null when there was no income
+  lending_in: string // received from lending (borrowed, or repaid to you) — not income
+  lending_out: string // lent out, or repaid on your debts — not spending
+}
+
 export interface FinanceSummary {
   total_balance: string
   total_credit_card_debt: string

@@ -344,3 +344,38 @@ async def test_date_arguments_are_passed_through(mcp_client: AsyncClient) -> Non
     assert resp.json()["result"]["isError"] is False, resp.text
     report = await _call_tool(mcp_client, tokens["access_token"], "get_day_report", {"report_date": "2026-09-01"})
     assert json.loads(report.json()["result"]["content"][0]["text"])["habits_done"][0]["name"] == "Read"
+
+
+async def test_monthly_cashflow_tool_separates_lending_from_income(mcp_client: AsyncClient) -> None:
+    headers = await _register_user(mcp_client, "murshid@example.com")
+    account = (
+        await mcp_client.post(
+            "/api/v1/finance/accounts", json={"name": "HDFC Bank", "account_type": "bank"}, headers=headers
+        )
+    ).json()
+    await mcp_client.post(
+        "/api/v1/finance/transactions",
+        json={"account_id": account["id"], "kind": "income", "amount": "50000", "occurred_on": "2026-09-01"},
+        headers=headers,
+    )
+    await mcp_client.post(
+        "/api/v1/finance/lendings",
+        json={
+            "person_name": "Rahul",
+            "direction": "borrowed",
+            "amount": "5000",
+            "account_id": account["id"],
+            "given_on": "2026-09-10",
+        },
+        headers=headers,
+    )
+    tokens = await _connect(mcp_client, "murshid@example.com")
+
+    resp = await _call_tool(
+        mcp_client, tokens["access_token"], "get_monthly_cashflow", {"year": 2026, "month": 9, "months": 1}
+    )
+    assert resp.json()["result"]["isError"] is False, resp.text
+    [sept] = json.loads(resp.json()["result"]["content"][0]["text"])
+    assert float(sept["income"]) == 50000.0
+    assert float(sept["lending_in"]) == 5000.0
+    assert float(sept["saved"]) == 50000.0
