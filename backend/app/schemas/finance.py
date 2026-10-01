@@ -331,6 +331,17 @@ class IncomeExpenseOut(BaseModel):
     expense: Decimal
 
 
+class MonthlyCashflowOut(BaseModel):
+    year: int
+    month: int
+    income: Decimal  # earned — excludes borrowed money, friends' repayments, card bill payments
+    spent: Decimal  # excludes money lent out and repayments of your own debts
+    saved: Decimal  # income - spent; negative when you spent more than you earned
+    savings_rate: float | None  # % of income saved; None when there was no income
+    lending_in: Decimal  # money received from lending (borrowed, or repaid to you) — not income
+    lending_out: Decimal  # money lent out, or repaid on your debts — not spending
+
+
 class FinanceSummaryOut(BaseModel):
     total_balance: Decimal  # cash + bank accounts only — what you actually have
     total_credit_card_debt: Decimal
