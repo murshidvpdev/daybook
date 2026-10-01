@@ -56,6 +56,8 @@ test('credit cards, EMIs, SIPs, and lending all work end to end', async ({ page 
   await expect(whatsappLink).toBeVisible()
   await expect(whatsappLink).toHaveAttribute('href', /^https:\/\/wa\.me\/919876543210\?text=/)
 
+  // Settling asks which account the money came back into — "no account" just closes it out
   await page.getByRole('button', { name: 'Mark settled' }).click()
+  await page.getByRole('button', { name: 'Settle', exact: true }).click()
   await expect(page.getByText('Settled', { exact: true })).toBeVisible()
 })

@@ -30,6 +30,7 @@ from app.schemas.finance import (
     EMIUpdate,
     LendingCreate,
     LendingPaymentCreate,
+    LendingSettle,
     LendingUpdate,
     SIPCreate,
     SIPUpdate,
@@ -674,6 +675,10 @@ async def _lending_out(db: AsyncSession, lending: Lending) -> dict:
                 "transaction_id": p.transaction_id,
             }
         )
+    source_account_id = None
+    if lending.transaction_id is not None:
+        source_txn = await db.get(Transaction, lending.transaction_id)
+        source_account_id = source_txn.account_id if source_txn is not None else None
     return {
         "id": lending.id,
         "person_name": lending.person_name,
@@ -686,6 +691,7 @@ async def _lending_out(db: AsyncSession, lending: Lending) -> dict:
         "is_settled": lending.is_settled,
         "settled_on": lending.settled_on,
         "transaction_id": lending.transaction_id,
+        "account_id": source_account_id,
         "amount_paid": amount_paid,
         "outstanding": Decimal(str(lending.amount)) - amount_paid,
         "payments": payment_dicts,
@@ -769,8 +775,24 @@ async def update_lending(db: AsyncSession, user_id: UUID, lending_id: UUID, data
     return await _lending_out(db, await get_lending(db, user_id, lending_id))
 
 
-async def settle_lending(db: AsyncSession, user_id: UUID, lending_id: UUID) -> dict:
+async def settle_lending(
+    db: AsyncSession, user_id: UUID, lending_id: UUID, data: LendingSettle | None = None
+) -> dict:
     lending = await get_lending(db, user_id, lending_id)
+    if data is not None and data.account_id is not None:
+        already_paid = sum((Decimal(str(p.amount)) for p in lending.payments), Decimal(0))
+        outstanding = Decimal(str(lending.amount)) - already_paid
+        if outstanding > 0:
+            # Settling with an account means the rest actually came back (or went
+            # out) through it — record it as a final payment so the balance moves.
+            return await add_lending_payment(
+                db,
+                user_id,
+                lending_id,
+                LendingPaymentCreate(
+                    amount=outstanding, paid_on=data.paid_on, account_id=data.account_id, note=data.note
+                ),
+            )
     lending.is_settled = True
     lending.settled_on = date.today()
     await db.commit()

@@ -235,6 +235,15 @@ class LendingPaymentCreate(BaseModel):
     note: str | None = None
 
 
+class LendingSettle(BaseModel):
+    # When set, whatever is still outstanding is recorded as a final payment into
+    # (or out of) this account — so "Mark settled" actually moves the balance,
+    # e.g. a friend paying back straight onto the credit card the spend was on.
+    account_id: UUID | None = None
+    paid_on: date | None = None
+    note: str | None = None
+
+
 class LendingPaymentOut(BaseModel):
     id: UUID
     amount: Decimal
@@ -257,6 +266,9 @@ class LendingOut(BaseModel):
     is_settled: bool
     settled_on: date | None
     transaction_id: UUID | None
+    # The account the original transaction hit (e.g. the credit card for a card
+    # spend), so the UI can default a repayment back onto it.
+    account_id: UUID | None
     amount_paid: Decimal
     outstanding: Decimal
     payments: list[LendingPaymentOut]
