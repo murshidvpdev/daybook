@@ -19,11 +19,12 @@ export function LendingTab() {
   })
   const [showNew, setShowNew] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [payingId, setPayingId] = useState<string | null>(null)
+  const [paying, setPaying] = useState<{ id: string; mode: PayMode } | null>(null)
 
-  const settle = useMutation({
-    mutationFn: async (id: string) => (await api.post(`/finance/lendings/${id}/settle`)).data,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['finance', 'lendings'] }),
+  const rowPayProps = (l: Lending) => ({
+    payMode: paying?.id === l.id ? paying.mode : null,
+    onPay: (mode: PayMode) => setPaying(paying?.id === l.id && paying.mode === mode ? null : { id: l.id, mode }),
+    onDonePaying: () => setPaying(null),
   })
   const remove = useMutation({
     mutationFn: async (id: string) => api.delete(`/finance/lendings/${id}`),
@@ -69,10 +70,7 @@ export function LendingTab() {
               key={l.id}
               lending={l}
               accounts={accounts ?? []}
-              isPaying={payingId === l.id}
-              onTogglePay={() => setPayingId(payingId === l.id ? null : l.id)}
-              onDonePaying={() => setPayingId(null)}
-              onSettle={() => settle.mutate(l.id)}
+              {...rowPayProps(l)}
               onEdit={() => setEditingId(l.id)}
               onRemove={() => remove.mutate(l.id)}
               onDeletePayment={(paymentId) => deletePayment.mutate({ lendingId: l.id, paymentId })}
@@ -90,10 +88,7 @@ export function LendingTab() {
                 key={l.id}
                 lending={l}
                 accounts={accounts ?? []}
-                isPaying={false}
-                onTogglePay={() => {}}
-                onDonePaying={() => {}}
-                onSettle={() => {}}
+                {...rowPayProps(l)}
                 onEdit={() => setEditingId(l.id)}
                 onRemove={() => remove.mutate(l.id)}
                 onDeletePayment={(paymentId) => deletePayment.mutate({ lendingId: l.id, paymentId })}
@@ -106,23 +101,27 @@ export function LendingTab() {
   )
 }
 
+type PayMode = 'pay' | 'settle'
+
+function accountLabel(a: Account) {
+  return a.account_type === 'credit_card' ? `${a.name} (credit card)` : a.name
+}
+
 function LendingRow({
   lending,
   accounts,
-  isPaying,
-  onTogglePay,
+  payMode,
+  onPay,
   onDonePaying,
-  onSettle,
   onEdit,
   onRemove,
   onDeletePayment,
 }: {
   lending: Lending
   accounts: Account[]
-  isPaying: boolean
-  onTogglePay: () => void
+  payMode: PayMode | null
+  onPay: (mode: PayMode) => void
   onDonePaying: () => void
-  onSettle: () => void
   onEdit: () => void
   onRemove: () => void
   onDeletePayment: (paymentId: string) => void
@@ -152,7 +151,10 @@ function LendingRow({
           <p className="text-xs text-[var(--ink-soft)]">
             {format(parseISO(lending.given_on), 'MMM d, yyyy')}
             {lending.remind_on && ` · ask by ${format(parseISO(lending.remind_on), 'MMM d')}`}
-            {lending.transaction_id && ' · from a card spend'}
+            {lending.transaction_id &&
+              ` · ${lending.direction === 'lent' ? 'from' : 'into'} ${
+                (lending.account_id && accountById.get(lending.account_id)?.name) || 'an account'
+              }`}
           </p>
           {lending.note && <p className="mt-1 text-xs text-[var(--ink-soft)]">{lending.note}</p>}
         </div>
@@ -208,13 +210,13 @@ function LendingRow({
       {!lending.is_settled && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <button
-            onClick={onTogglePay}
+            onClick={() => onPay('pay')}
             className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
           >
             Record payment
           </button>
           <button
-            onClick={onSettle}
+            onClick={() => onPay('settle')}
             className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--surface-2)]"
           >
             {hasPayments ? 'Mark rest settled' : 'Mark settled'}
@@ -243,16 +245,20 @@ function LendingRow({
         </div>
       )}
       {lending.is_settled && (
-        <div className="mt-2 flex justify-end">
+        <div className="mt-2 flex items-center justify-end gap-3">
+          {outstanding > 0 && (
+            // Settled with no money recorded against an account — let the balance catch up.
+            <button onClick={() => onPay('pay')} className="text-xs text-[var(--accent-ink)] hover:underline">
+              {lending.direction === 'lent' ? 'Add to the account it came into' : 'Add to the account it went from'}
+            </button>
+          )}
           <button onClick={onRemove} className="text-xs text-[var(--ink-soft)] hover:text-[var(--danger)]">
             Delete
           </button>
         </div>
       )}
 
-      {isPaying && (
-        <RecordPaymentForm lending={lending} accounts={accounts} onDone={onDonePaying} />
-      )}
+      {payMode && <RecordPaymentForm lending={lending} accounts={accounts} mode={payMode} onDone={onDonePaying} />}
     </Card>
   )
 }
@@ -260,28 +266,41 @@ function LendingRow({
 function RecordPaymentForm({
   lending,
   accounts,
+  mode,
   onDone,
 }: {
   lending: Lending
   accounts: Account[]
+  mode: PayMode
   onDone: () => void
 }) {
   const queryClient = useQueryClient()
+  const settling = mode === 'settle'
   const [amount, setAmount] = useState(lending.outstanding)
   const [paidOn, setPaidOn] = useState(new Date().toISOString().slice(0, 10))
-  const [accountId, setAccountId] = useState('')
+  // Default back onto the account the money originally moved through — e.g. a
+  // friend repaying a card spend usually means paying down that same card.
+  const [accountId, setAccountId] = useState(lending.account_id ?? '')
   const [note, setNote] = useState('')
 
   const record = useMutation({
     mutationFn: async () =>
-      (
-        await api.post(`/finance/lendings/${lending.id}/payments`, {
-          amount,
-          paid_on: paidOn,
-          account_id: accountId || null,
-          note: note || null,
-        })
-      ).data,
+      settling
+        ? (
+            await api.post(`/finance/lendings/${lending.id}/settle`, {
+              paid_on: paidOn,
+              account_id: accountId || null,
+              note: note || null,
+            })
+          ).data
+        : (
+            await api.post(`/finance/lendings/${lending.id}/payments`, {
+              amount,
+              paid_on: paidOn,
+              account_id: accountId || null,
+              note: note || null,
+            })
+          ).data,
     onSuccess: () => {
       // A payment can move an account's balance, not just this one lending record.
       queryClient.invalidateQueries({ queryKey: ['finance'] })
@@ -292,19 +311,24 @@ function RecordPaymentForm({
   return (
     <div className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--paper)] p-3">
       <p className="mb-2 text-xs font-medium text-[var(--ink-soft)]">
-        {lending.direction === 'lent' ? 'How much did they pay back?' : 'How much did you pay back?'} (up to ₹
-        {Number(lending.outstanding).toLocaleString('en-IN')})
+        {settling
+          ? `Settling the remaining ₹${Number(lending.outstanding).toLocaleString('en-IN')}`
+          : `${lending.direction === 'lent' ? 'How much did they pay back?' : 'How much did you pay back?'} (up to ₹${Number(
+              lending.outstanding,
+            ).toLocaleString('en-IN')})`}
       </p>
       <div className="flex flex-col gap-2">
-        <div className="grid grid-cols-2 gap-2">
-          <input
-            type="number"
-            inputMode="decimal"
-            placeholder="Amount"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
-          />
+        <div className={`grid gap-2 ${settling ? 'grid-cols-1' : 'grid-cols-2'}`}>
+          {!settling && (
+            <input
+              type="number"
+              inputMode="decimal"
+              placeholder="Amount"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+            />
+          )}
           <input
             type="date"
             value={paidOn}
@@ -321,10 +345,10 @@ function RecordPaymentForm({
               onChange={(e) => setAccountId(e.target.value)}
               className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm"
             >
-              <option value="">Just track it, no account</option>
+              <option value="">{settling ? 'No account — just mark it settled' : 'Just track it, no account'}</option>
               {accounts.map((a) => (
                 <option key={a.id} value={a.id}>
-                  {a.name}
+                  {accountLabel(a)}
                 </option>
               ))}
             </select>
@@ -339,10 +363,10 @@ function RecordPaymentForm({
         <div className="flex gap-2">
           <button
             onClick={() => record.mutate()}
-            disabled={!amount || Number(amount) <= 0 || record.isPending}
+            disabled={(!settling && (!amount || Number(amount) <= 0)) || record.isPending}
             className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
           >
-            Save
+            {settling ? 'Mark settled' : 'Save'}
           </button>
           <button onClick={onDone} className="rounded-lg px-4 py-2 text-sm text-[var(--ink-soft)]">
             Cancel

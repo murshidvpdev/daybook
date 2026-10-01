@@ -99,6 +99,7 @@ export interface Lending {
   is_settled: boolean
   settled_on: string | null
   transaction_id: string | null
+  account_id: string | null
   amount_paid: string
   outstanding: string
   payments: LendingPayment[]

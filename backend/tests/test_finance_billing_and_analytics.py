@@ -271,3 +271,58 @@ async def test_income_vs_expense_for_a_month(client: AsyncClient, auth_headers: 
     body = resp.json()
     assert float(body["income"]) == 1500.0
     assert float(body["expense"]) == 400.0
+
+
+async def test_settling_a_card_lending_onto_the_card_reduces_its_outstanding(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    card = await _create_credit_card(client, auth_headers)
+    spend = await client.post(
+        f"/api/v1/finance/credit-cards/{card['id']}/spend",
+        headers=auth_headers,
+        json={"amount": "2000", "lend": {"person_name": "Arjun"}},
+    )
+    lending = spend.json()["lending"]
+    assert lending["account_id"] == card["account_id"]
+
+    await client.post(
+        f"/api/v1/finance/lendings/{lending['id']}/payments", headers=auth_headers, json={"amount": "500"}
+    )
+    settle = await client.post(
+        f"/api/v1/finance/lendings/{lending['id']}/settle",
+        headers=auth_headers,
+        json={"account_id": card["account_id"]},
+    )
+    assert settle.status_code == 200
+    body = settle.json()
+    assert body["is_settled"] is True
+    assert float(body["outstanding"]) == 0
+    assert float(body["payments"][-1]["amount"]) == 1500
+    assert body["payments"][-1]["account_id"] == card["account_id"]
+
+    cards = await client.get("/api/v1/finance/credit-cards", headers=auth_headers)
+    assert float(cards.json()[0]["outstanding_balance"]) == 500.0
+
+
+async def test_already_settled_lending_can_still_record_where_the_money_went(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    card = await _create_credit_card(client, auth_headers)
+    spend = await client.post(
+        f"/api/v1/finance/credit-cards/{card['id']}/spend",
+        headers=auth_headers,
+        json={"amount": "2000", "lend": {"person_name": "Arjun"}},
+    )
+    lending_id = spend.json()["lending"]["id"]
+    await client.post(f"/api/v1/finance/lendings/{lending_id}/settle", headers=auth_headers)
+
+    pay = await client.post(
+        f"/api/v1/finance/lendings/{lending_id}/payments",
+        headers=auth_headers,
+        json={"amount": "2000", "account_id": card["account_id"]},
+    )
+    assert pay.status_code == 201
+    assert pay.json()["is_settled"] is True
+
+    cards = await client.get("/api/v1/finance/credit-cards", headers=auth_headers)
+    assert float(cards.json()[0]["outstanding_balance"]) == 0.0
