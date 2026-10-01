@@ -29,7 +29,7 @@ test('card spend can auto-create a lending record, and bills generate/pay', asyn
   // It shows up automatically in Lending — the whole point of the feature
   await page.getByRole('button', { name: 'Lending' }).click()
   await expect(page.getByText('Arjun').first()).toBeVisible()
-  await expect(page.getByText('from a card spend')).toBeVisible()
+  await expect(page.getByText('from HDFC Regalia')).toBeVisible()
 
   // Plain spend (no lending) still works and doesn't create a lending row
   await page.getByRole('button', { name: 'Credit Cards' }).click()

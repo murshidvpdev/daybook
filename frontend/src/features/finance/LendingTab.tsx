@@ -366,7 +366,7 @@ function RecordPaymentForm({
             disabled={(!settling && (!amount || Number(amount) <= 0)) || record.isPending}
             className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
           >
-            {settling ? 'Mark settled' : 'Save'}
+            {settling ? 'Settle' : 'Save'}
           </button>
           <button onClick={onDone} className="rounded-lg px-4 py-2 text-sm text-[var(--ink-soft)]">
             Cancel
