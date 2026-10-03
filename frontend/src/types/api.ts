@@ -66,6 +66,7 @@ export interface Emi {
   next_due_date: string
   is_completed: boolean
   is_due: boolean
+  lending_id: string | null
 }
 
 export interface Sip {
@@ -103,6 +104,15 @@ export interface Lending {
   amount_paid: string
   outstanding: string
   payments: LendingPayment[]
+  emi: LendingEmi | null
+}
+
+export interface LendingEmi {
+  id: string
+  monthly_amount: string
+  total_installments: number
+  installments_paid: number
+  next_due_date: string
 }
 
 export interface ReminderLinks {
@@ -181,6 +191,7 @@ export interface Transaction {
   amount: string
   note: string | null
   occurred_on: string
+  is_transfer: boolean
 }
 
 export interface Exercise {

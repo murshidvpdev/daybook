@@ -2,6 +2,7 @@ import uuid
 from datetime import date
 
 from sqlalchemy import Boolean, Date, ForeignKey, Integer, Numeric, String
+from sqlalchemy import false as sa_false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDPKMixin
@@ -46,8 +47,18 @@ class Transaction(Base, UUIDPKMixin, TimestampMixin):
     amount: Mapped[float] = mapped_column(Numeric(12, 2))
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     occurred_on: Mapped[date] = mapped_column(Date, index=True)
+    # Money moving between your own things rather than in or out of your life —
+    # paying a card bill from a bank account (both sides), or a friend's card
+    # spend being re-scheduled into EMI installments. It moves balances like any
+    # transaction but never counts as earning or spending in reports, which
+    # would otherwise see the same purchase twice.
+    is_transfer: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa_false())
 
     account: Mapped[FinancialAccount] = relationship(back_populates="transactions")
+
+
+# Filter for anything that adds up earning or spending — never for balances.
+NOT_TRANSFER = Transaction.is_transfer.is_(False)
 
 
 class CreditCard(Base, UUIDPKMixin, TimestampMixin):
@@ -88,6 +99,17 @@ class EMI(Base, UUIDPKMixin, TimestampMixin):
     installments_paid: Mapped[int] = mapped_column(Integer, default=0)
     due_day: Mapped[int] = mapped_column(Integer)
     next_due_date: Mapped[date] = mapped_column(Date, index=True)
+    # Set when a friend's card spend was converted to EMI (see
+    # services/finance.py:convert_lending_to_emi): the installments are the
+    # friend's debt being re-timed, not your own spending.
+    lending_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("lendings.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # The card credit that took the converted spend off the current bill, so an
+    # untouched conversion can be undone cleanly.
+    conversion_transaction_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("transactions.id", ondelete="SET NULL"), nullable=True
+    )
 
     account: Mapped[FinancialAccount] = relationship()
 

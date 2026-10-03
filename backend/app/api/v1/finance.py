@@ -13,15 +13,18 @@ from app.schemas.finance import (
     AccountOut,
     AccountUpdate,
     BalanceAdjustment,
+    BillPayment,
     CategoryBreakdownItem,
     CategoryCreate,
     CategoryOut,
     CategoryUpdate,
     CreditCardBillOut,
     CreditCardCreate,
+    CreditCardMoneyIn,
     CreditCardOut,
     CreditCardSpendCreate,
     CreditCardSpendResult,
+    CreditCardStatementMatch,
     CreditCardUpdate,
     EMICreate,
     EMIOut,
@@ -29,6 +32,7 @@ from app.schemas.finance import (
     FinanceSummaryOut,
     IncomeExpenseOut,
     LendingCreate,
+    LendingEMIConvert,
     LendingOut,
     LendingPaymentCreate,
     LendingSettle,
@@ -249,6 +253,36 @@ async def spend_on_credit_card(
     return {"transaction": txn, "lending": lending}
 
 
+@router.post(
+    "/credit-cards/{card_id}/money-in", response_model=TransactionOut, status_code=status.HTTP_201_CREATED
+)
+async def card_money_in(
+    card_id: UUID,
+    payload: CreditCardMoneyIn,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await service.card_money_in(db, user_id, card_id, payload)
+    except service.FinanceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except service.FinanceValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.post("/credit-cards/{card_id}/match-statement", response_model=CreditCardOut)
+async def match_card_statement(
+    card_id: UUID,
+    payload: CreditCardStatementMatch,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await service.match_card_statement(db, user_id, card_id, payload)
+    except service.FinanceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
 @router.get("/credit-cards/{card_id}/bills", response_model=list[CreditCardBillOut])
 async def list_bills(
     card_id: UUID, user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)
@@ -272,11 +306,18 @@ async def generate_bill(
 
 
 @router.post("/credit-cards/bills/{bill_id}/pay", response_model=CreditCardBillOut)
-async def pay_bill(bill_id: UUID, user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
+async def pay_bill(
+    bill_id: UUID,
+    payload: BillPayment | None = None,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
     try:
-        return await service.pay_bill(db, user_id, bill_id)
+        return await service.pay_bill(db, user_id, bill_id, payload)
     except service.FinanceNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except service.FinanceValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
 # --- EMIs ---------------------------------------------------------------------
@@ -428,6 +469,21 @@ async def delete_lending_payment(
         return await service.delete_lending_payment(db, user_id, lending_id, payment_id)
     except service.FinanceNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+@router.post("/lendings/{lending_id}/convert-to-emi", response_model=LendingOut)
+async def convert_lending_to_emi(
+    lending_id: UUID,
+    payload: LendingEMIConvert,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await service.convert_lending_to_emi(db, user_id, lending_id, payload)
+    except service.FinanceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except service.FinanceValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
 @router.post("/lendings/{lending_id}/settle", response_model=LendingOut)

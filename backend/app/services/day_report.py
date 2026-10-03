@@ -69,6 +69,7 @@ async def build_day_report(db: AsyncSession, user_id: UUID, report_date: date) -
                 Transaction.kind,
                 Transaction.amount,
                 Transaction.note,
+                Transaction.is_transfer,
             )
             .select_from(Transaction)
             .join(FinancialAccount, Transaction.account_id == FinancialAccount.id)
@@ -77,8 +78,10 @@ async def build_day_report(db: AsyncSession, user_id: UUID, report_date: date) -
             .order_by(Transaction.created_at)
         )
     ).all()
-    total_spent = sum((r.amount for r in txn_rows if r.kind == "expense"), Decimal(0))
-    total_income = sum((r.amount for r in txn_rows if r.kind == "income"), Decimal(0))
+    # Transfers (a card bill paid from the bank, say) move money between your own
+    # accounts — listed below, but neither earned nor spent.
+    total_spent = sum((r.amount for r in txn_rows if r.kind == "expense" and not r.is_transfer), Decimal(0))
+    total_income = sum((r.amount for r in txn_rows if r.kind == "income" and not r.is_transfer), Decimal(0))
 
     sessions = (
         await db.scalars(
