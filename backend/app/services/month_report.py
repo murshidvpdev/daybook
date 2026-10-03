@@ -12,7 +12,7 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.finance import Lending, LendingPayment, Transaction, TransactionCategory
+from app.models.finance import NOT_TRANSFER, Lending, LendingPayment, Transaction, TransactionCategory
 from app.models.fitness import ExerciseSet, WorkoutSession
 from app.models.habit import Habit, HabitCompletion
 from app.models.routine import Routine, RoutineCompletion, RoutineItem
@@ -59,8 +59,8 @@ async def build_period_report(
         await db.execute(
             select(
                 func.count(Transaction.id),
-                func.coalesce(func.sum(Transaction.amount).filter(Transaction.kind == "expense"), 0),
-                func.coalesce(func.sum(Transaction.amount).filter(Transaction.kind == "income"), 0),
+                func.coalesce(func.sum(Transaction.amount).filter(Transaction.kind == "expense", NOT_TRANSFER), 0),
+                func.coalesce(func.sum(Transaction.amount).filter(Transaction.kind == "income", NOT_TRANSFER), 0),
             ).where(Transaction.user_id == user_id, *_in_range(Transaction.occurred_on))
         )
     ).one()
@@ -75,6 +75,7 @@ async def build_period_report(
             .where(
                 Transaction.user_id == user_id,
                 Transaction.kind == "expense",
+                NOT_TRANSFER,
                 *_in_range(Transaction.occurred_on),
             )
             .group_by(category_name)

@@ -271,6 +271,7 @@ function NewTransactionForm({ accounts }: { accounts: Account[] }) {
         amount,
         note: note || null,
         occurred_on: new Date().toISOString().slice(0, 10),
+        is_transfer: false,
       }
       queryClient.setQueryData<Transaction[]>(['finance', 'transactions'], (old) => [
         optimistic,

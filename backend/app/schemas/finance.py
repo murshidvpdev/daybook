@@ -1,5 +1,6 @@
 from datetime import date
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, field_validator
@@ -83,6 +84,7 @@ class TransactionOut(BaseModel):
     amount: Decimal
     note: str | None
     occurred_on: date
+    is_transfer: bool
 
 
 def _validate_due_day(v: int) -> int:
@@ -161,6 +163,7 @@ class EMIOut(BaseModel):
     next_due_date: date
     is_completed: bool
     is_due: bool
+    lending_id: UUID | None
 
 
 class SIPCreate(BaseModel):
@@ -244,6 +247,40 @@ class LendingSettle(BaseModel):
     note: str | None = None
 
 
+class LendingEMIConvert(BaseModel):
+    """A friend asked for their card spend to be converted to EMI. The bank takes
+    the spend off this bill and charges `monthly_amount` for `total_installments`
+    months instead, usually with interest and a one-off processing fee. The friend
+    then owes the full EMI cost (every installment plus the fee); lower the
+    lending's amount afterwards if you're covering the interest yourself."""
+
+    monthly_amount: Decimal
+    total_installments: int
+    due_day: int | None = None  # defaults to the card's due day
+    start_date: date | None = None  # first installment's due date
+    processing_fee: Decimal = Decimal(0)
+
+    @field_validator("total_installments")
+    @classmethod
+    def _validate_installments(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("total_installments must be at least 1")
+        return v
+
+    @field_validator("due_day")
+    @classmethod
+    def _validate_due_day_optional(cls, v: int | None) -> int | None:
+        return v if v is None else _validate_due_day(v)
+
+
+class LendingEMIOut(BaseModel):
+    id: UUID
+    monthly_amount: Decimal
+    total_installments: int
+    installments_paid: int
+    next_due_date: date
+
+
 class LendingPaymentOut(BaseModel):
     id: UUID
     amount: Decimal
@@ -272,6 +309,7 @@ class LendingOut(BaseModel):
     amount_paid: Decimal
     outstanding: Decimal
     payments: list[LendingPaymentOut]
+    emi: LendingEMIOut | None
 
 
 class ReminderLinksOut(BaseModel):
@@ -310,6 +348,29 @@ class CreditCardSpendCreate(BaseModel):
     category_id: UUID | None = None
     occurred_on: date | None = None
     lend: LendPayload | None = None  # set when this spend was money handed to a friend
+
+
+class CreditCardMoneyIn(BaseModel):
+    """Anything that lowers what you owe on the card."""
+
+    amount: Decimal
+    source: Literal["payment", "refund"] = "payment"  # refund also covers cashback/reversals
+    # For a payment: the bank/cash account it was paid from, whose balance drops by the same amount.
+    from_account_id: UUID | None = None
+    occurred_on: date | None = None
+    note: str | None = None
+
+
+class CreditCardStatementMatch(BaseModel):
+    """What the bank's app or statement says you owe right now — the service posts
+    one adjustment for the difference, so the card reconciles without retyping history."""
+
+    actual_outstanding: Decimal
+    note: str | None = None
+
+
+class BillPayment(BaseModel):
+    from_account_id: UUID | None = None
 
 
 class CreditCardSpendResult(BaseModel):

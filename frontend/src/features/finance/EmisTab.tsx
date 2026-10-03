@@ -94,7 +94,11 @@ export function EmisTab() {
                   </button>
                   <button
                     onClick={() => {
-                      if (confirm(`Remove "${emi.name}"?`)) remove.mutate(emi.id)
+                      const message =
+                        emi.lending_id && emi.installments_paid === 0
+                          ? `Undo converting "${emi.name}" to EMI? The spend goes back on the card and your friend owes the original amount again.`
+                          : `Remove "${emi.name}"?`
+                      if (confirm(message)) remove.mutate(emi.id)
                     }}
                     className="text-xs text-[var(--ink-soft)] hover:text-[var(--danger)]"
                   >

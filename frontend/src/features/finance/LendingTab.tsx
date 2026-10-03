@@ -101,7 +101,7 @@ export function LendingTab() {
   )
 }
 
-type PayMode = 'pay' | 'settle'
+type PayMode = 'pay' | 'settle' | 'emi'
 
 function accountLabel(a: Account) {
   return a.account_type === 'credit_card' ? `${a.name} (credit card)` : a.name
@@ -136,6 +136,9 @@ function LendingRow({
   const accountById = new Map(accounts.map((a) => [a.id, a]))
   const hasPayments = lending.payments.length > 0
   const outstanding = Number(lending.outstanding)
+  const sourceAccount = lending.account_id ? accountById.get(lending.account_id) : undefined
+  const canConvertToEmi =
+    lending.direction === 'lent' && !lending.emi && !lending.is_settled && sourceAccount?.account_type === 'credit_card'
   const pct = hasPayments ? Math.min(100, Math.max(0, (Number(lending.amount_paid) / Number(lending.amount)) * 100)) : 0
 
   return (
@@ -157,6 +160,14 @@ function LendingRow({
               }`}
           </p>
           {lending.note && <p className="mt-1 text-xs text-[var(--ink-soft)]">{lending.note}</p>}
+          {lending.emi && (
+            <p className="mt-1 text-xs font-medium text-[var(--ink)]">
+              On EMI · ₹{Number(lending.emi.monthly_amount).toLocaleString('en-IN')}/mo ·{' '}
+              {lending.emi.installments_paid}/{lending.emi.total_installments} charged
+              {lending.emi.installments_paid < lending.emi.total_installments &&
+                ` · next ${format(parseISO(lending.emi.next_due_date), 'MMM d')}`}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <div className="text-right">
@@ -221,6 +232,14 @@ function LendingRow({
           >
             {hasPayments ? 'Mark rest settled' : 'Mark settled'}
           </button>
+          {canConvertToEmi && (
+            <button
+              onClick={() => onPay('emi')}
+              className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--surface-2)]"
+            >
+              Convert to EMI
+            </button>
+          )}
           {reminder && (
             <>
               <a
@@ -258,7 +277,12 @@ function LendingRow({
         </div>
       )}
 
-      {payMode && <RecordPaymentForm lending={lending} accounts={accounts} mode={payMode} onDone={onDonePaying} />}
+      {payMode === 'emi' && sourceAccount && (
+        <ConvertToEmiForm lending={lending} cardName={sourceAccount.name} onDone={onDonePaying} />
+      )}
+      {payMode && payMode !== 'emi' && (
+        <RecordPaymentForm lending={lending} accounts={accounts} mode={payMode} onDone={onDonePaying} />
+      )}
     </Card>
   )
 }
@@ -271,12 +295,15 @@ function RecordPaymentForm({
 }: {
   lending: Lending
   accounts: Account[]
-  mode: PayMode
+  mode: Exclude<PayMode, 'emi'>
   onDone: () => void
 }) {
   const queryClient = useQueryClient()
   const settling = mode === 'settle'
-  const [amount, setAmount] = useState(lending.outstanding)
+  // On EMI, a friend usually pays you back one installment at a time.
+  const [amount, setAmount] = useState(
+    lending.emi ? String(Math.min(Number(lending.emi.monthly_amount), Number(lending.outstanding))) : lending.outstanding,
+  )
   const [paidOn, setPaidOn] = useState(new Date().toISOString().slice(0, 10))
   // Default back onto the account the money originally moved through — e.g. a
   // friend repaying a card spend usually means paying down that same card.
@@ -382,6 +409,108 @@ function RecordPaymentForm({
   )
 }
 
+function ConvertToEmiForm({ lending, cardName, onDone }: { lending: Lending; cardName: string; onDone: () => void }) {
+  const queryClient = useQueryClient()
+  const [monthly, setMonthly] = useState('')
+  const [months, setMonths] = useState('6')
+  const [fee, setFee] = useState('')
+  const [startDate, setStartDate] = useState('')
+  const total = Number(monthly || 0) * Number(months || 0) + Number(fee || 0)
+
+  const convert = useMutation({
+    mutationFn: async () =>
+      (
+        await api.post(`/finance/lendings/${lending.id}/convert-to-emi`, {
+          monthly_amount: monthly,
+          total_installments: Number(months),
+          processing_fee: fee || 0,
+          start_date: startDate || null,
+        })
+      ).data,
+    onSuccess: () => {
+      // Moves the card balance and adds an EMI, not just this lending.
+      queryClient.invalidateQueries({ queryKey: ['finance'] })
+      onDone()
+    },
+  })
+
+  return (
+    <div className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--paper)] p-3">
+      <p className="mb-2 text-xs font-medium text-[var(--ink-soft)]">
+        The bank takes ₹{Number(lending.amount).toLocaleString('en-IN')} off {cardName}'s bill and charges it monthly
+        instead. Copy the numbers from the bank's EMI offer.
+      </p>
+      <div className="flex flex-col gap-2">
+        <div className="grid grid-cols-2 gap-2">
+          <label className="text-xs font-medium text-[var(--ink-soft)]">
+            Monthly EMI
+            <input
+              type="number"
+              inputMode="decimal"
+              placeholder="e.g. 5300"
+              value={monthly}
+              onChange={(e) => setMonthly(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+            />
+          </label>
+          <label className="text-xs font-medium text-[var(--ink-soft)]">
+            Months
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              value={months}
+              onChange={(e) => setMonths(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+            />
+          </label>
+          <label className="text-xs font-medium text-[var(--ink-soft)]">
+            Processing fee
+            <input
+              type="number"
+              inputMode="decimal"
+              placeholder="0"
+              value={fee}
+              onChange={(e) => setFee(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+            />
+          </label>
+          <label className="text-xs font-medium text-[var(--ink-soft)]">
+            First EMI due
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+            />
+          </label>
+        </div>
+        {total > 0 && (
+          <p className="text-xs text-[var(--ink-soft)]">
+            {lending.person_name} will owe ₹{total.toLocaleString('en-IN')} in total (all EMIs plus the fee). You can
+            lower it afterwards with the edit button if you're covering the interest.
+          </p>
+        )}
+        <div className="flex gap-2">
+          <button
+            onClick={() => convert.mutate()}
+            disabled={!monthly || Number(monthly) <= 0 || !months || Number(months) < 1 || convert.isPending}
+            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+          >
+            Convert
+          </button>
+          <button onClick={onDone} className="rounded-lg px-4 py-2 text-sm text-[var(--ink-soft)]">
+            Cancel
+          </button>
+        </div>
+        {convert.isError && (
+          <p className="text-xs text-[var(--danger)]">Couldn't convert that — check the EMI amount and months.</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function EditLendingForm({ lending, onDone }: { lending: Lending; onDone: () => void }) {
   const queryClient = useQueryClient()
   const [personName, setPersonName] = useState(lending.person_name)
@@ -458,10 +587,15 @@ function EditLendingForm({ lending, onDone }: { lending: Lending; onDone: () => 
           onChange={(e) => setNote(e.target.value)}
           className="rounded-lg border border-[var(--border)] bg-[var(--paper)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
         />
-        {lending.transaction_id && (
+        {lending.transaction_id && !lending.emi && (
           <p className="text-xs text-[var(--ink-soft)]">
             This was logged from a card spend — changing the amount also corrects that transaction and the card
             balance.
+          </p>
+        )}
+        {lending.emi && (
+          <p className="text-xs text-[var(--ink-soft)]">
+            This is on EMI — the amount is what your friend owes you in total. Changing it doesn't touch the card.
           </p>
         )}
         <div className="flex gap-2">

@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from app.models.finance import (
     EMI,
+    NOT_TRANSFER,
     SIP,
     CreditCard,
     CreditCardBill,
@@ -21,14 +22,18 @@ from app.schemas.finance import (
     AccountCreate,
     AccountUpdate,
     BalanceAdjustment,
+    BillPayment,
     CategoryCreate,
     CategoryUpdate,
     CreditCardCreate,
+    CreditCardMoneyIn,
     CreditCardSpendCreate,
+    CreditCardStatementMatch,
     CreditCardUpdate,
     EMICreate,
     EMIUpdate,
     LendingCreate,
+    LendingEMIConvert,
     LendingPaymentCreate,
     LendingSettle,
     LendingUpdate,
@@ -298,6 +303,7 @@ async def spent_on(db: AsyncSession, user_id: UUID, on: date) -> float:
         select(func.coalesce(func.sum(Transaction.amount), 0)).where(
             Transaction.user_id == user_id,
             Transaction.kind == "expense",
+            NOT_TRANSFER,
             Transaction.occurred_on == on,
         )
     )
@@ -436,6 +442,96 @@ async def spend_on_credit_card(
     return txn, lending_out
 
 
+async def _record_card_payment(
+    db: AsyncSession,
+    user_id: UUID,
+    card: CreditCard,
+    amount: Decimal,
+    from_account_id: UUID | None,
+    occurred_on: date,
+    note: str,
+) -> Transaction:
+    """Paying the card down. With a source account, both sides post as one
+    transfer — the card owes less, the bank holds less — and neither counts as
+    earning or spending, since the purchases themselves already did."""
+    if from_account_id is not None:
+        source = await _get_owned_account(db, user_id, from_account_id)
+        if source.account_type == "credit_card":
+            raise FinanceValidationError("Pay a card from a bank or cash account, not another card")
+        db.add(
+            Transaction(
+                user_id=user_id,
+                account_id=source.id,
+                kind="expense",
+                amount=amount,
+                note=f"{note} → {card.account.name}",
+                occurred_on=occurred_on,
+                is_transfer=True,
+            )
+        )
+    txn = Transaction(
+        user_id=user_id,
+        account_id=card.account_id,
+        kind="income",
+        amount=amount,
+        note=note,
+        occurred_on=occurred_on,
+        is_transfer=True,
+    )
+    db.add(txn)
+    return txn
+
+
+async def card_money_in(
+    db: AsyncSession, user_id: UUID, card_id: UUID, data: CreditCardMoneyIn
+) -> Transaction:
+    card = await _get_owned_credit_card(db, user_id, card_id)
+    if data.amount <= 0:
+        raise FinanceValidationError("Amount must be positive")
+    occurred_on = data.occurred_on or date.today()
+    if data.source == "payment":
+        txn = await _record_card_payment(
+            db, user_id, card, data.amount, data.from_account_id, occurred_on, data.note or "Card payment"
+        )
+    else:
+        txn = Transaction(
+            user_id=user_id,
+            account_id=card.account_id,
+            kind="income",
+            amount=data.amount,
+            note=data.note or "Refund / cashback",
+            occurred_on=occurred_on,
+        )
+        db.add(txn)
+    await db.commit()
+    await db.refresh(txn)
+    return txn
+
+
+async def match_card_statement(
+    db: AsyncSession, user_id: UUID, card_id: UUID, data: CreditCardStatementMatch
+) -> dict:
+    """Same idea as adjust_account_balance, mirrored for a card: owing more than
+    the app thinks posts the gap as a charge (usually interest or fees you never
+    logged), owing less posts it as a credit."""
+    card = await _get_owned_credit_card(db, user_id, card_id)
+    current = Decimal(str(await _outstanding_balance(db, card.account_id, card.account.opening_balance)))
+    diff = data.actual_outstanding - current
+    if diff != 0:
+        db.add(
+            Transaction(
+                user_id=user_id,
+                account_id=card.account_id,
+                kind="expense" if diff > 0 else "income",
+                amount=abs(diff),
+                note=data.note or "Matched to statement",
+                occurred_on=date.today(),
+            )
+        )
+        await db.commit()
+    return await _credit_card_out(db, card)
+
+
 # --- Credit card bills -------------------------------------------------------
 
 
@@ -493,7 +589,9 @@ async def generate_bill(db: AsyncSession, user_id: UUID, card_id: UUID) -> Credi
     return bill
 
 
-async def pay_bill(db: AsyncSession, user_id: UUID, bill_id: UUID) -> CreditCardBill:
+async def pay_bill(
+    db: AsyncSession, user_id: UUID, bill_id: UUID, data: BillPayment | None = None
+) -> CreditCardBill:
     bill = await db.scalar(
         select(CreditCardBill).where(CreditCardBill.id == bill_id, CreditCardBill.user_id == user_id)
     )
@@ -502,16 +600,15 @@ async def pay_bill(db: AsyncSession, user_id: UUID, bill_id: UUID) -> CreditCard
     if bill.is_paid:
         return bill
 
-    card = await db.get(CreditCard, bill.credit_card_id)
-    db.add(
-        Transaction(
-            user_id=user_id,
-            account_id=card.account_id,
-            kind="income",
-            amount=bill.amount,
-            note=f"Bill payment ({bill.period_start} to {bill.period_end})",
-            occurred_on=date.today(),
-        )
+    card = await _get_owned_credit_card(db, user_id, bill.credit_card_id)
+    await _record_card_payment(
+        db,
+        user_id,
+        card,
+        Decimal(str(bill.amount)),
+        data.from_account_id if data else None,
+        date.today(),
+        f"Bill payment ({bill.period_start} to {bill.period_end})",
     )
     bill.is_paid = True
     bill.paid_on = date.today()
@@ -569,6 +666,19 @@ async def delete_emi(db: AsyncSession, user_id: UUID, emi_id: UUID) -> None:
     emi = await db.scalar(select(EMI).where(EMI.id == emi_id, EMI.user_id == user_id))
     if emi is None:
         raise FinanceNotFound("EMI not found")
+    if emi.lending_id is not None and emi.installments_paid == 0:
+        # Nothing has been charged yet, so this is an undo of the conversion:
+        # put the spend back on the card and the friend's debt back to it.
+        lending = await db.get(Lending, emi.lending_id)
+        original = None
+        if lending is not None and lending.transaction_id is not None:
+            original = await db.get(Transaction, lending.transaction_id)
+        if emi.conversion_transaction_id is not None:
+            credit = await db.get(Transaction, emi.conversion_transaction_id)
+            if credit is not None:
+                await db.delete(credit)
+        if lending is not None and original is not None:
+            lending.amount = original.amount
     await db.delete(emi)
     await db.commit()
 
@@ -594,6 +704,8 @@ async def confirm_emi_payment(db: AsyncSession, user_id: UUID, emi_id: UUID) -> 
             amount=emi.monthly_amount,
             note=f"EMI: {emi.name} ({emi.installments_paid + 1}/{emi.total_installments})",
             occurred_on=emi.next_due_date,
+            # A friend's converted spend: the original charge already counted, as lending.
+            is_transfer=emi.lending_id is not None,
         )
     )
     emi.installments_paid += 1
@@ -675,6 +787,7 @@ async def _lending_out(db: AsyncSession, lending: Lending) -> dict:
                 "transaction_id": p.transaction_id,
             }
         )
+    emi = await db.scalar(select(EMI).where(EMI.lending_id == lending.id))
     source_account_id = None
     if lending.transaction_id is not None:
         source_txn = await db.get(Transaction, lending.transaction_id)
@@ -695,6 +808,15 @@ async def _lending_out(db: AsyncSession, lending: Lending) -> dict:
         "amount_paid": amount_paid,
         "outstanding": Decimal(str(lending.amount)) - amount_paid,
         "payments": payment_dicts,
+        "emi": None
+        if emi is None
+        else {
+            "id": emi.id,
+            "monthly_amount": emi.monthly_amount,
+            "total_installments": emi.total_installments,
+            "installments_paid": emi.installments_paid,
+            "next_due_date": emi.next_due_date,
+        },
     }
 
 
@@ -762,7 +884,8 @@ async def update_lending(db: AsyncSession, user_id: UUID, lending_id: UUID, data
             raise FinanceValidationError(
                 f"Can't set the amount below what's already been paid back (₹{already_paid:,.2f})"
             )
-        if lending.transaction_id is not None:
+        converted = await db.scalar(select(EMI.id).where(EMI.lending_id == lending.id))
+        if lending.transaction_id is not None and converted is None:
             # The linked transaction already moved the account balance once at this
             # amount — correcting a typo here without correcting that would leave
             # the balance wrong in the opposite direction.
@@ -881,6 +1004,66 @@ async def delete_lending_payment(db: AsyncSession, user_id: UUID, lending_id: UU
     return await _lending_out(db, await get_lending(db, user_id, lending_id))
 
 
+async def convert_lending_to_emi(
+    db: AsyncSession, user_id: UUID, lending_id: UUID, data: LendingEMIConvert
+) -> dict:
+    """The bank takes the friend's spend off the current bill (less any
+    processing fee) and bills it back as monthly installments. The friend now
+    owes the whole EMI cost and repays it month by month like any lending."""
+    lending = await get_lending(db, user_id, lending_id)
+    if lending.direction != "lent" or lending.transaction_id is None:
+        raise FinanceValidationError("Only money you lent from a credit card spend can be converted to EMI")
+    if lending.is_settled:
+        raise FinanceValidationError("This lending is already settled")
+    if await db.scalar(select(EMI.id).where(EMI.lending_id == lending.id)) is not None:
+        raise FinanceValidationError("This lending is already on EMI")
+    spend = await db.get(Transaction, lending.transaction_id)
+    card = None
+    if spend is not None:
+        card = await db.scalar(select(CreditCard).where(CreditCard.account_id == spend.account_id))
+    if spend is None or card is None:
+        raise FinanceValidationError("Only money you lent from a credit card spend can be converted to EMI")
+    if data.monthly_amount <= 0 or data.processing_fee < 0:
+        raise FinanceValidationError("Check the EMI amount and fee")
+
+    total_cost = data.monthly_amount * data.total_installments + data.processing_fee
+    already_paid = sum((Decimal(str(p.amount)) for p in lending.payments), Decimal(0))
+    if total_cost < already_paid:
+        raise FinanceValidationError(f"The EMI total is less than what's already been paid back (₹{already_paid:,.2f})")
+
+    principal = Decimal(str(spend.amount))
+    credit = Transaction(
+        user_id=user_id,
+        account_id=card.account_id,
+        kind="income",
+        amount=principal - data.processing_fee,
+        note=f"Converted to EMI: {lending.person_name}"
+        + (f" (₹{principal:,.0f} less ₹{data.processing_fee:,.0f} fee)" if data.processing_fee else ""),
+        occurred_on=date.today(),
+        is_transfer=True,
+    )
+    db.add(credit)
+    await db.flush()
+
+    due_day = data.due_day or card.due_day
+    db.add(
+        EMI(
+            user_id=user_id,
+            account_id=card.account_id,
+            name=f"{lending.person_name} (card EMI)",
+            monthly_amount=data.monthly_amount,
+            total_installments=data.total_installments,
+            due_day=due_day,
+            next_due_date=data.start_date or compute_next_due_date(due_day),
+            lending_id=lending.id,
+            conversion_transaction_id=credit.id,
+        )
+    )
+    lending.amount = total_cost
+    await db.commit()
+    return await _lending_out(db, await get_lending(db, user_id, lending_id))
+
+
 # --- Analytics ----------------------------------------------------------------
 # Deterministic SQL aggregation only — no room for an LLM to "estimate" a total.
 
@@ -892,6 +1075,7 @@ async def spend_trend(db: AsyncSession, user_id: UUID, start: date, end: date) -
             .where(
                 Transaction.user_id == user_id,
                 Transaction.kind == "expense",
+                NOT_TRANSFER,
                 Transaction.occurred_on >= start,
                 Transaction.occurred_on <= end,
             )
@@ -916,6 +1100,7 @@ async def category_breakdown(db: AsyncSession, user_id: UUID, start: date, end: 
             .where(
                 Transaction.user_id == user_id,
                 Transaction.kind == "expense",
+                NOT_TRANSFER,
                 Transaction.occurred_on >= start,
                 Transaction.occurred_on <= end,
             )
@@ -937,6 +1122,7 @@ async def account_breakdown(db: AsyncSession, user_id: UUID, start: date, end: d
             .where(
                 Transaction.user_id == user_id,
                 Transaction.kind == "expense",
+                NOT_TRANSFER,
                 Transaction.occurred_on >= start,
                 Transaction.occurred_on <= end,
             )
@@ -954,8 +1140,8 @@ async def income_vs_expense(db: AsyncSession, user_id: UUID, start: date, end: d
     income, expense = (
         await db.execute(
             select(
-                func.coalesce(func.sum(Transaction.amount).filter(Transaction.kind == "income"), 0),
-                func.coalesce(func.sum(Transaction.amount).filter(Transaction.kind == "expense"), 0),
+                func.coalesce(func.sum(Transaction.amount).filter(Transaction.kind == "income", NOT_TRANSFER), 0),
+                func.coalesce(func.sum(Transaction.amount).filter(Transaction.kind == "expense", NOT_TRANSFER), 0),
             ).where(
                 Transaction.user_id == user_id,
                 Transaction.occurred_on >= start,
@@ -982,8 +1168,8 @@ async def finance_summary(db: AsyncSession, user_id: UUID) -> dict:
     spent, earned = (
         await db.execute(
             select(
-                func.coalesce(func.sum(Transaction.amount).filter(Transaction.kind == "expense"), 0),
-                func.coalesce(func.sum(Transaction.amount).filter(Transaction.kind == "income"), 0),
+                func.coalesce(func.sum(Transaction.amount).filter(Transaction.kind == "expense", NOT_TRANSFER), 0),
+                func.coalesce(func.sum(Transaction.amount).filter(Transaction.kind == "income", NOT_TRANSFER), 0),
             ).where(Transaction.user_id == user_id, Transaction.occurred_on >= month_start)
         )
     ).one()
@@ -1072,6 +1258,7 @@ async def monthly_cashflow(db: AsyncSession, user_id: UUID, year: int, month: in
             .join(FinancialAccount, Transaction.account_id == FinancialAccount.id)
             .where(
                 Transaction.user_id == user_id,
+                NOT_TRANSFER,
                 Transaction.occurred_on >= range_start,
                 Transaction.occurred_on <= range_end,
             )
