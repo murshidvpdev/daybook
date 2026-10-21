@@ -487,8 +487,10 @@ function ConvertToEmiForm({ lending, cardName, onDone }: { lending: Lending; car
         </div>
         {total > 0 && (
           <p className="text-xs text-[var(--ink-soft)]">
-            {lending.person_name} will owe ₹{total.toLocaleString('en-IN')} in total (all EMIs plus the fee). You can
-            lower it afterwards with the edit button if you're covering the interest.
+            {lending.person_name} will owe ₹{total.toLocaleString('en-IN')} in total — ₹
+            {Number(lending.amount).toLocaleString('en-IN')} plus ₹
+            {Math.max(0, total - Number(lending.amount)).toLocaleString('en-IN')} interest and fee. You can lower it
+            afterwards with the edit button if you're covering the interest.
           </p>
         )}
         <div className="flex gap-2">

@@ -207,6 +207,7 @@ class EMIOut(BaseModel):
     is_completed: bool
     is_due: bool
     lending_id: UUID | None
+    principal_amount: Decimal | None
 
 
 class SIPCreate(BaseModel):
@@ -301,6 +302,31 @@ class LendingEMIConvert(BaseModel):
     total_installments: int
     due_day: int | None = None  # defaults to the card's due day
     start_date: date | None = None  # first installment's due date
+    processing_fee: Decimal = Decimal(0)
+
+    @field_validator("total_installments")
+    @classmethod
+    def _validate_installments(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("total_installments must be at least 1")
+        return v
+
+    @field_validator("due_day")
+    @classmethod
+    def _validate_due_day_optional(cls, v: int | None) -> int | None:
+        return v if v is None else _validate_due_day(v)
+
+
+class CardEMIConvert(BaseModel):
+    """Your own card purchase converted to EMI: the bank takes `amount` off the
+    current dues and charges `monthly_amount` for `total_installments` months."""
+
+    name: str
+    amount: Decimal
+    monthly_amount: Decimal
+    total_installments: int
+    due_day: int | None = None  # defaults to the card's due day
+    start_date: date | None = None
     processing_fee: Decimal = Decimal(0)
 
     @field_validator("total_installments")
