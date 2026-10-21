@@ -6,11 +6,22 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, field_validator
 
 
+def _validate_last_four(v: str | None) -> str | None:
+    if v is None or v == "":
+        return None
+    if not (v.isdigit() and 3 <= len(v) <= 4):
+        raise ValueError("last_four must be the last 3 or 4 digits of the account number")
+    return v
+
+
 class AccountCreate(BaseModel):
     name: str
     account_type: str = "cash"
     currency: str = "INR"
     opening_balance: Decimal = Decimal(0)
+    last_four: str | None = None  # matches bank SMS ("A/c XX1234") to this account
+
+    _validate_last_four = field_validator("last_four")(lambda v: _validate_last_four(v))
 
 
 class AccountUpdate(BaseModel):
@@ -18,6 +29,9 @@ class AccountUpdate(BaseModel):
     account_type: str | None = None
     currency: str | None = None
     opening_balance: Decimal | None = None
+    last_four: str | None = None
+
+    _validate_last_four = field_validator("last_four")(lambda v: _validate_last_four(v))
 
 
 class AccountOut(BaseModel):
@@ -29,6 +43,7 @@ class AccountOut(BaseModel):
     opening_balance: Decimal
     current_balance: Decimal
     last_checked_on: date | None
+    last_four: str | None
 
 
 class BalanceAdjustment(BaseModel):
@@ -39,6 +54,11 @@ class BalanceAdjustment(BaseModel):
 
     actual_balance: Decimal
     note: str | None = None
+
+
+class StartFresh(BaseModel):
+    # Typed by hand in the app — this wipes accounts, cards and transactions.
+    confirm: Literal["START FRESH"]
 
 
 class BalanceCheckEntry(BaseModel):

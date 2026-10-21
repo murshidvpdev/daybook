@@ -23,6 +23,9 @@ class FinancialAccount(Base, UUIDPKMixin, TimestampMixin):
     # (see services/finance.py:check_balances) — anything logged since is the
     # only thing that can have drifted.
     last_checked_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # Last digits of the account number, as bank SMS print them ("A/c XX1234"),
+    # so a captured SMS lands on the right account. Cards use CreditCard.last_four.
+    last_four: Mapped[str | None] = mapped_column(String(4), nullable=True)
 
     transactions: Mapped[list["Transaction"]] = relationship(
         back_populates="account", cascade="all, delete-orphan"

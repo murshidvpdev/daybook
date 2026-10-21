@@ -260,6 +260,7 @@ function EditAccountForm({ account, onDone }: { account: Account; onDone: () => 
   const [name, setName] = useState(account.name)
   const [accountType, setAccountType] = useState<'cash' | 'bank'>(account.account_type as 'cash' | 'bank')
   const [openingBalance, setOpeningBalance] = useState(account.opening_balance)
+  const [lastFour, setLastFour] = useState(account.last_four ?? '')
 
   const update = useMutation({
     mutationFn: async () =>
@@ -268,6 +269,7 @@ function EditAccountForm({ account, onDone }: { account: Account; onDone: () => 
           name,
           account_type: accountType,
           opening_balance: openingBalance || 0,
+          last_four: accountType === 'bank' ? lastFour || null : null,
         })
       ).data,
     onSuccess: () => {
@@ -301,6 +303,18 @@ function EditAccountForm({ account, onDone }: { account: Account; onDone: () => 
           onChange={(e) => setOpeningBalance(e.target.value)}
           className="w-32 rounded-lg border border-[var(--border)] bg-[var(--paper)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
         />
+        {accountType === 'bank' && (
+          <input
+            inputMode="numeric"
+            maxLength={4}
+            placeholder="Last 4 digits"
+            aria-label="Last 4 digits of the account number"
+            title="As your bank's SMS shows it, e.g. A/c XX1234 — lets SMS tracking find this account"
+            value={lastFour}
+            onChange={(e) => setLastFour(e.target.value.replace(/\D/g, ''))}
+            className="w-28 rounded-lg border border-[var(--border)] bg-[var(--paper)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+          />
+        )}
         <button
           onClick={() => update.mutate()}
           disabled={!name.trim() || update.isPending}
@@ -324,6 +338,7 @@ function NewAccountForm({ onDone }: { onDone: () => void }) {
   const [name, setName] = useState('')
   const [accountType, setAccountType] = useState<'cash' | 'bank'>('cash')
   const [openingBalance, setOpeningBalance] = useState('')
+  const [lastFour, setLastFour] = useState('')
 
   const create = useMutation({
     mutationFn: async () =>
@@ -332,6 +347,7 @@ function NewAccountForm({ onDone }: { onDone: () => void }) {
           name,
           account_type: accountType,
           opening_balance: openingBalance || 0,
+          last_four: accountType === 'bank' ? lastFour || null : null,
         })
       ).data,
     onSuccess: () => {
@@ -365,6 +381,18 @@ function NewAccountForm({ onDone }: { onDone: () => void }) {
           onChange={(e) => setOpeningBalance(e.target.value)}
           className="w-32 rounded-lg border border-[var(--border)] bg-[var(--paper)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
         />
+        {accountType === 'bank' && (
+          <input
+            inputMode="numeric"
+            maxLength={4}
+            placeholder="Last 4 digits"
+            aria-label="Last 4 digits of the account number"
+            title="As your bank's SMS shows it, e.g. A/c XX1234 — lets SMS tracking find this account"
+            value={lastFour}
+            onChange={(e) => setLastFour(e.target.value.replace(/\D/g, ''))}
+            className="w-28 rounded-lg border border-[var(--border)] bg-[var(--paper)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+          />
+        )}
         <button
           onClick={() => create.mutate()}
           disabled={!name.trim() || create.isPending}
