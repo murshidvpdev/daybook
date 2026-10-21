@@ -113,6 +113,9 @@ export function EmisTab() {
                 {emi.installments_paid}/{emi.total_installments} paid
                 {!emi.is_completed && ` · next ${format(parseISO(emi.next_due_date), 'MMM d')}`}
                 {emi.is_completed && ' · completed'}
+                {!emi.is_completed &&
+                  account?.account_type === 'credit_card' &&
+                  ' · added to the card automatically on the due date'}
               </p>
               {emi.is_due && (
                 <div className="mt-2 flex items-center justify-between rounded-lg bg-[var(--amber-soft)] px-3 py-2">

@@ -13,6 +13,21 @@ async def _create_credit_card(client: AsyncClient, headers: dict[str, str], due_
     return resp.json()
 
 
+async def _create_bank(client: AsyncClient, headers: dict[str, str]) -> dict:
+    resp = await client.post(
+        "/api/v1/finance/accounts",
+        headers=headers,
+        json={"name": "SBI Loan Account", "account_type": "bank", "opening_balance": "100000"},
+    )
+    assert resp.status_code == 201
+    return resp.json()
+
+
+async def _bank_balance(client: AsyncClient, headers: dict[str, str]) -> float:
+    accounts = (await client.get("/api/v1/finance/accounts", headers=headers)).json()
+    return float(accounts[0]["current_balance"])
+
+
 async def test_credit_card_rejects_invalid_due_day(client: AsyncClient, auth_headers: dict[str, str]) -> None:
     resp = await client.post(
         "/api/v1/finance/credit-cards",
@@ -23,18 +38,18 @@ async def test_credit_card_rejects_invalid_due_day(client: AsyncClient, auth_hea
 
 
 async def test_emi_is_not_charged_until_confirmed(client: AsyncClient, auth_headers: dict[str, str]) -> None:
-    """EMIs never auto-generate their transaction — see confirm_emi_payment.
-    Listing (even repeatedly) must never move installments_paid or the balance
-    on its own; only an explicit confirm-payment call may do that."""
-    card = await _create_credit_card(client, auth_headers, due_day=5)
+    """An EMI paid from a bank account never auto-generates its transaction — see
+    confirm_emi_payment. Listing (even repeatedly) must never move
+    installments_paid or the balance on its own; only confirm-payment may."""
+    bank = await _create_bank(client, auth_headers)
     three_months_ago = date.today().replace(day=5) - timedelta(days=95)
 
     create = await client.post(
         "/api/v1/finance/emis",
         headers=auth_headers,
         json={
-            "account_id": card["account_id"],
-            "name": "iPhone EMI",
+            "account_id": bank["id"],
+            "name": "Personal loan",
             "monthly_amount": "3500",
             "total_installments": 10,
             "due_day": 5,
@@ -50,8 +65,7 @@ async def test_emi_is_not_charged_until_confirmed(client: AsyncClient, auth_head
         assert emi["is_due"] is True
         assert emi["next_due_date"] == three_months_ago.isoformat()
 
-    cards = await client.get("/api/v1/finance/credit-cards", headers=auth_headers)
-    assert float(cards.json()[0]["outstanding_balance"]) == 0.0
+    assert await _bank_balance(client, auth_headers) == 100000.0
     txns = await client.get("/api/v1/finance/transactions", headers=auth_headers)
     assert txns.json() == []
 
@@ -59,15 +73,15 @@ async def test_emi_is_not_charged_until_confirmed(client: AsyncClient, auth_head
 async def test_confirming_emi_payment_charges_one_installment_and_advances(
     client: AsyncClient, auth_headers: dict[str, str]
 ) -> None:
-    card = await _create_credit_card(client, auth_headers, due_day=5)
+    bank = await _create_bank(client, auth_headers)
     three_months_ago = date.today().replace(day=5) - timedelta(days=95)
 
     create = await client.post(
         "/api/v1/finance/emis",
         headers=auth_headers,
         json={
-            "account_id": card["account_id"],
-            "name": "iPhone EMI",
+            "account_id": bank["id"],
+            "name": "Personal loan",
             "monthly_amount": "3500",
             "total_installments": 10,
             "due_day": 5,
@@ -84,8 +98,7 @@ async def test_confirming_emi_payment_charges_one_installment_and_advances(
     assert body["is_due"] is True
     assert date.fromisoformat(body["next_due_date"]) > three_months_ago
 
-    cards = await client.get("/api/v1/finance/credit-cards", headers=auth_headers)
-    assert float(cards.json()[0]["outstanding_balance"]) == 3500.0
+    assert await _bank_balance(client, auth_headers) == 100000.0 - 3500.0
 
     # Keep confirming, one call per overdue cycle, until fully caught up.
     last = body
@@ -99,8 +112,37 @@ async def test_confirming_emi_payment_charges_one_installment_and_advances(
     assert last["installments_paid"] == confirmations
     assert date.fromisoformat(last["next_due_date"]) > date.today()
 
-    cards_after = await client.get("/api/v1/finance/credit-cards", headers=auth_headers)
-    assert float(cards_after.json()[0]["outstanding_balance"]) == confirmations * 3500.0
+    assert await _bank_balance(client, auth_headers) == 100000.0 - confirmations * 3500.0
+
+
+async def test_card_emi_catches_up_on_its_own(client: AsyncClient, auth_headers: dict[str, str]) -> None:
+    """The bank charges a card EMI without asking, so every due installment
+    posts by itself — including months missed while the app wasn't opened."""
+    card = await _create_credit_card(client, auth_headers, due_day=5)
+    three_months_ago = date.today().replace(day=5) - timedelta(days=95)
+    await client.post(
+        "/api/v1/finance/emis",
+        headers=auth_headers,
+        json={
+            "account_id": card["account_id"],
+            "name": "iPhone EMI",
+            "monthly_amount": "3500",
+            "total_installments": 10,
+            "due_day": 5,
+            "start_date": three_months_ago.isoformat(),
+        },
+    )
+    emi = (await client.get("/api/v1/finance/emis", headers=auth_headers)).json()[0]
+    assert emi["is_due"] is False
+    assert date.fromisoformat(emi["next_due_date"]) > date.today()
+    paid = emi["installments_paid"]
+    assert paid >= 3
+
+    cards = await client.get("/api/v1/finance/credit-cards", headers=auth_headers)
+    assert float(cards.json()[0]["outstanding_balance"]) == paid * 3500.0
+    # Listing again doesn't charge anything twice
+    again = (await client.get("/api/v1/finance/emis", headers=auth_headers)).json()[0]
+    assert again["installments_paid"] == paid
 
 
 async def test_cannot_confirm_emi_payment_before_due_date(client: AsyncClient, auth_headers: dict[str, str]) -> None:

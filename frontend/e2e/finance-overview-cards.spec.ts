@@ -28,7 +28,7 @@ test('a credit card shows up in Accounts, is selectable for a plain expense, and
   await page.getByRole('button', { name: 'Save' }).click()
 
   // The card is selectable in Overview's plain quick-add form — no need to
-  // go to the card's own "+ Add spend"
+  // go to the card's own "+ Money out"
   await page.getByRole('button', { name: 'Overview', exact: true }).click()
   await page.getByRole('combobox', { name: 'Account' }).selectOption({ label: 'HDFC Regalia' })
   await page.fill('input[placeholder="Amount"]', '800')
@@ -42,5 +42,5 @@ test('a credit card shows up in Accounts, is selectable for a plain expense, and
 
   // Clicking through actually switches to the Credit Cards tab
   await page.getByText('View card →').click()
-  await expect(page.getByRole('button', { name: 'Bills' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Convert to EMI' })).toBeVisible()
 })

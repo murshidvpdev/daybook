@@ -117,6 +117,10 @@ class EMI(Base, UUIDPKMixin, TimestampMixin):
     conversion_transaction_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("transactions.id", ondelete="SET NULL"), nullable=True
     )
+    # Set when a card purchase was converted to EMI: the amount converted. Each
+    # installment above principal_amount / total_installments is interest — the
+    # only part that's new spending, since the purchase itself already counted.
+    principal_amount: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
 
     account: Mapped[FinancialAccount] = relationship()
 

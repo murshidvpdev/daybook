@@ -16,6 +16,7 @@ from app.schemas.finance import (
     BalanceCheck,
     BalanceCheckResult,
     BillPayment,
+    CardEMIConvert,
     CategoryBreakdownItem,
     CategoryCreate,
     CategoryOut,
@@ -310,6 +311,21 @@ async def match_card_statement(
         return await service.match_card_statement(db, user_id, card_id, payload)
     except service.FinanceNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+@router.post("/credit-cards/{card_id}/convert-to-emi", response_model=EMIOut, status_code=status.HTTP_201_CREATED)
+async def convert_card_spend_to_emi(
+    card_id: UUID,
+    payload: CardEMIConvert,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await service.convert_card_spend_to_emi(db, user_id, card_id, payload)
+    except service.FinanceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except service.FinanceValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
 @router.get("/credit-cards/{card_id}/bills", response_model=list[CreditCardBillOut])

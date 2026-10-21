@@ -24,6 +24,7 @@ from app.schemas.finance import (
     BalanceAdjustment,
     BalanceCheck,
     BillPayment,
+    CardEMIConvert,
     CategoryCreate,
     CategoryUpdate,
     CreditCardCreate,
@@ -81,6 +82,7 @@ async def _account_out(db: AsyncSession, account: FinancialAccount) -> dict:
 
 
 async def list_accounts(db: AsyncSession, user_id: UUID) -> list[dict]:
+    await sync_recurring(db, user_id)
     accounts = (
         await db.scalars(select(FinancialAccount).where(FinancialAccount.user_id == user_id))
     ).all()
@@ -266,7 +268,7 @@ async def list_transactions(
     single bar of a chart — one day, one category, one account, or the
     income/expense split — so clicking through from a chart always lands on
     the exact rows behind it."""
-    await sync_due_sips(db, user_id)
+    await sync_recurring(db, user_id)
     conditions = [Transaction.user_id == user_id]
     if start is not None:
         conditions.append(Transaction.occurred_on >= start)
@@ -373,7 +375,7 @@ async def _credit_card_out(db: AsyncSession, card: CreditCard) -> dict:
 
 
 async def list_credit_cards(db: AsyncSession, user_id: UUID) -> list[dict]:
-    await sync_due_sips(db, user_id)
+    await sync_recurring(db, user_id)
     cards = (
         await db.scalars(
             select(CreditCard)
@@ -650,6 +652,7 @@ async def pay_bill(
 
 
 async def list_emis(db: AsyncSession, user_id: UUID) -> list[EMI]:
+    await sync_recurring(db, user_id)
     result = await db.scalars(
         select(EMI).where(EMI.user_id == user_id).order_by(EMI.next_due_date)
     )
@@ -695,6 +698,13 @@ async def delete_emi(db: AsyncSession, user_id: UUID, emi_id: UUID) -> None:
     emi = await db.scalar(select(EMI).where(EMI.id == emi_id, EMI.user_id == user_id))
     if emi is None:
         raise FinanceNotFound("EMI not found")
+    own_untouched = emi.principal_amount is not None and emi.lending_id is None and emi.installments_paid == 0
+    if own_untouched and emi.conversion_transaction_id is not None:
+        # An untouched card-purchase conversion: put the purchase back on the card.
+        # (A processing fee, if any, stays — the bank doesn't refund it either.)
+        credit = await db.get(Transaction, emi.conversion_transaction_id)
+        if credit is not None:
+            await db.delete(credit)
     if emi.lending_id is not None and emi.installments_paid == 0:
         # Nothing has been charged yet, so this is an undo of the conversion:
         # put the spend back on the card and the friend's debt back to it.
@@ -712,9 +722,74 @@ async def delete_emi(db: AsyncSession, user_id: UUID, emi_id: UUID) -> None:
     await db.commit()
 
 
+def _post_emi_installment(db: AsyncSession, user_id: UUID, emi: EMI) -> None:
+    """Posts the next installment and advances the schedule; the caller commits."""
+    label = f"EMI: {emi.name} ({emi.installments_paid + 1}/{emi.total_installments})"
+    monthly = Decimal(str(emi.monthly_amount))
+    if emi.principal_amount is not None and emi.lending_id is None:
+        # Your own converted purchase: the principal part only re-times a spend
+        # that already counted, so it's a transfer; the rest is interest — real,
+        # new spending. The last installment absorbs any rounding.
+        principal = Decimal(str(emi.principal_amount))
+        per = (principal / emi.total_installments).quantize(Decimal("0.01"))
+        if emi.installments_paid + 1 == emi.total_installments:
+            per = principal - per * (emi.total_installments - 1)
+        principal_part = min(per, monthly)
+        parts = [(principal_part, True, label), (monthly - principal_part, False, f"{label} — interest")]
+    else:
+        # A friend's converted spend is all transfer (it already counted, as
+        # lending); a plain loan EMI is all spending, as before.
+        parts = [(monthly, emi.lending_id is not None, label)]
+    for amount, is_transfer, note in parts:
+        if amount > 0:
+            db.add(
+                Transaction(
+                    user_id=user_id,
+                    account_id=emi.account_id,
+                    kind="expense",
+                    amount=amount,
+                    note=note,
+                    occurred_on=emi.next_due_date,
+                    is_transfer=is_transfer,
+                )
+            )
+    emi.installments_paid += 1
+    emi.next_due_date = advance_one_month(emi.due_day, emi.next_due_date)
+
+
+async def sync_due_card_emis(db: AsyncSession, user_id: UUID) -> None:
+    """A credit card EMI is charged by the bank on its own, so — unlike a loan
+    EMI paid from a bank account — it's added on its due date without asking."""
+    today = date.today()
+    emis = (
+        await db.scalars(
+            select(EMI)
+            .join(FinancialAccount, EMI.account_id == FinancialAccount.id)
+            .where(
+                EMI.user_id == user_id,
+                FinancialAccount.account_type == "credit_card",
+                EMI.next_due_date <= today,
+                EMI.installments_paid < EMI.total_installments,
+            )
+        )
+    ).all()
+    for emi in emis:
+        while emi.is_due:
+            _post_emi_installment(db, user_id, emi)
+    if emis:
+        await db.commit()
+
+
+async def sync_recurring(db: AsyncSession, user_id: UUID) -> None:
+    """Brings auto-charged items up to date before anything reads balances."""
+    await sync_due_sips(db, user_id)
+    await sync_due_card_emis(db, user_id)
+
+
 async def confirm_emi_payment(db: AsyncSession, user_id: UUID, emi_id: UUID) -> EMI:
-    """Called when the user answers "yes, I paid this" for a due installment —
-    only then does the expense actually post and the account balance move.
+    """Called when the user answers "yes, I paid this" for a due installment of
+    an EMI paid from a bank account (card EMIs post themselves, see
+    sync_due_card_emis) — only then does the expense post and the balance move.
     One call covers exactly one installment; a user who's behind on two months
     confirms twice, so nothing is ever silently bulk-charged on their behalf."""
     emi = await db.scalar(select(EMI).where(EMI.id == emi_id, EMI.user_id == user_id))
@@ -725,20 +800,7 @@ async def confirm_emi_payment(db: AsyncSession, user_id: UUID, emi_id: UUID) -> 
     if emi.next_due_date > date.today():
         raise FinanceValidationError("This EMI isn't due yet")
 
-    db.add(
-        Transaction(
-            user_id=user_id,
-            account_id=emi.account_id,
-            kind="expense",
-            amount=emi.monthly_amount,
-            note=f"EMI: {emi.name} ({emi.installments_paid + 1}/{emi.total_installments})",
-            occurred_on=emi.next_due_date,
-            # A friend's converted spend: the original charge already counted, as lending.
-            is_transfer=emi.lending_id is not None,
-        )
-    )
-    emi.installments_paid += 1
-    emi.next_due_date = advance_one_month(emi.due_day, emi.next_due_date)
+    _post_emi_installment(db, user_id, emi)
     await db.commit()
     await db.refresh(emi)
     return emi
@@ -748,7 +810,7 @@ async def confirm_emi_payment(db: AsyncSession, user_id: UUID, emi_id: UUID) -> 
 
 
 async def list_sips(db: AsyncSession, user_id: UUID) -> list[SIP]:
-    await sync_due_sips(db, user_id)
+    await sync_recurring(db, user_id)
     result = await db.scalars(
         select(SIP).where(SIP.user_id == user_id, SIP.is_active.is_(True)).order_by(SIP.next_due_date)
     )
@@ -1033,6 +1095,57 @@ async def delete_lending_payment(db: AsyncSession, user_id: UUID, lending_id: UU
     return await _lending_out(db, await get_lending(db, user_id, lending_id))
 
 
+async def convert_card_spend_to_emi(db: AsyncSession, user_id: UUID, card_id: UUID, data: CardEMIConvert) -> EMI:
+    """The bank takes the purchase off the current dues and bills it back
+    monthly. The processing fee is a real charge now; interest is counted
+    month by month as each installment posts (see confirm_emi_payment)."""
+    card = await _get_owned_credit_card(db, user_id, card_id)
+    if data.amount <= 0 or data.monthly_amount <= 0 or data.processing_fee < 0:
+        raise FinanceValidationError("Check the amount, EMI and fee")
+    if data.monthly_amount * data.total_installments < data.amount:
+        raise FinanceValidationError("The EMIs add up to less than the amount converted")
+
+    today = date.today()
+    credit = Transaction(
+        user_id=user_id,
+        account_id=card.account_id,
+        kind="income",
+        amount=data.amount,
+        note=f"Converted to EMI: {data.name}",
+        occurred_on=today,
+        is_transfer=True,
+    )
+    db.add(credit)
+    if data.processing_fee > 0:
+        db.add(
+            Transaction(
+                user_id=user_id,
+                account_id=card.account_id,
+                kind="expense",
+                amount=data.processing_fee,
+                note=f"EMI processing fee: {data.name}",
+                occurred_on=today,
+            )
+        )
+    await db.flush()
+    due_day = data.due_day or card.due_day
+    emi = EMI(
+        user_id=user_id,
+        account_id=card.account_id,
+        name=data.name,
+        monthly_amount=data.monthly_amount,
+        total_installments=data.total_installments,
+        due_day=due_day,
+        next_due_date=data.start_date or compute_next_due_date(due_day),
+        conversion_transaction_id=credit.id,
+        principal_amount=data.amount,
+    )
+    db.add(emi)
+    await db.commit()
+    await db.refresh(emi)
+    return emi
+
+
 async def convert_lending_to_emi(
     db: AsyncSession, user_id: UUID, lending_id: UUID, data: LendingEMIConvert
 ) -> dict:
@@ -1182,6 +1295,7 @@ async def income_vs_expense(db: AsyncSession, user_id: UUID, start: date, end: d
 
 
 async def finance_summary(db: AsyncSession, user_id: UUID) -> dict:
+    await sync_recurring(db, user_id)
     accounts = (await db.scalars(select(FinancialAccount).where(FinancialAccount.user_id == user_id))).all()
 
     total_balance = 0.0

@@ -1,9 +1,9 @@
-"""Due-date math shared by credit cards, EMIs, and SIPs. SIPs still
-auto-generate their transaction the next time a finance endpoint is hit
-(a NACH-style auto-debit doesn't wait for confirmation in real life either).
-EMIs deliberately don't — see services/finance.py:confirm_emi_payment — since
-whether an EMI installment actually went through is exactly the kind of thing
-that shouldn't be assumed silently.
+"""Due-date math shared by credit cards, EMIs, and SIPs. SIPs and credit card
+EMIs auto-generate their transaction the next time a finance endpoint is hit
+(the bank charges them without asking in real life too — see
+services/finance.py:sync_recurring). EMIs paid from a bank account still wait
+for confirmation (services/finance.py:confirm_emi_payment), since whether that
+debit actually went through shouldn't be assumed silently.
 """
 
 import calendar

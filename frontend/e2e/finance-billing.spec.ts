@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-test('card spend can auto-create a lending record, and bills generate/pay', async ({ page }) => {
+test('card spend can auto-create a lending record, and paying the card clears it', async ({ page }) => {
   const email = `billing-e2e${Date.now()}@example.com`
   await page.goto('/register')
   await page.fill('input[type="email"]', email)
@@ -16,7 +16,7 @@ test('card spend can auto-create a lending record, and bills generate/pay', asyn
   await expect(page.getByText('HDFC Regalia')).toBeVisible()
 
   // Quick spend, marked as lent to a friend
-  await page.getByRole('button', { name: '+ Add spend' }).click()
+  await page.getByRole('button', { name: '+ Money out' }).click()
   await page.fill('input[placeholder="Amount"]', '2000')
   await page.fill('input[placeholder*="Groceries"]', 'Cash for Arjun')
   await page.getByText('This was money I lent to a friend').click()
@@ -33,20 +33,16 @@ test('card spend can auto-create a lending record, and bills generate/pay', asyn
 
   // Plain spend (no lending) still works and doesn't create a lending row
   await page.getByRole('button', { name: 'Credit Cards' }).click()
-  await page.getByRole('button', { name: '+ Add spend' }).click()
+  await page.getByRole('button', { name: '+ Money out' }).click()
   await page.fill('input[placeholder="Amount"]', '500')
   await page.fill('input[placeholder*="Groceries"]', 'Groceries')
   await page.getByRole('button', { name: 'Save' }).click()
   await expect(page.getByText('₹2,500')).toBeVisible()
 
-  // Bill generation
-  await page.getByRole('button', { name: 'Bills' }).click()
-  await page.getByRole('button', { name: 'Generate bill' }).click()
-  await expect(page.getByText('₹2,500', { exact: true }).last()).toBeVisible()
-  await page.getByRole('button', { name: 'Mark paid' }).click()
-  await expect(page.getByText('Paid', { exact: true })).toBeVisible()
-
-  // Paying the bill brings the outstanding balance back to zero
+  // Paying the card (money in) brings what's owed back to zero — no bills to generate
+  await page.getByRole('button', { name: '+ Money in' }).click()
+  await page.fill('input[placeholder="Amount"]', '2500')
+  await page.getByRole('button', { name: 'Save' }).click()
   await expect(page.getByText('₹0', { exact: true })).toBeVisible()
 })
 

@@ -153,15 +153,13 @@ async def test_converting_a_friends_card_spend_to_emi(client: AsyncClient, auth_
     assert body["emi"]["total_installments"] == 6
     assert body["emi"]["installments_paid"] == 0
 
-    # The spend comes off the current bill; only the fee is left on it
-    assert await _outstanding(client, auth_headers) == 199
+    # The spend comes off the current bill; the first installment (due today)
+    # is charged by the bank on its own, plus the fee
+    assert await _outstanding(client, auth_headers) == 199 + 5300
 
     emis = (await client.get("/api/v1/finance/emis", headers=auth_headers)).json()
     assert len(emis) == 1 and emis[0]["lending_id"] == lending["id"]
-
-    confirm = await client.post(f"/api/v1/finance/emis/{emis[0]['id']}/confirm-payment", headers=auth_headers)
-    assert confirm.status_code == 200
-    assert await _outstanding(client, auth_headers) == 199 + 5300
+    assert emis[0]["installments_paid"] == 1
 
     # The friend's installment isn't your spending — the original spend already counted as lending
     flow = await _this_month_cashflow(client, auth_headers)
