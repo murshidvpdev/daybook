@@ -36,6 +36,7 @@ export interface Account {
   currency: string
   opening_balance: string
   current_balance: string
+  last_checked_on: string | null
 }
 
 export interface Category {
@@ -53,6 +54,7 @@ export interface CreditCard {
   due_day: number
   next_due_date: string
   outstanding_balance: string
+  last_checked_on: string | null
 }
 
 export interface Emi {

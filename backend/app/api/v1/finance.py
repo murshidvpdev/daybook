@@ -13,6 +13,8 @@ from app.schemas.finance import (
     AccountOut,
     AccountUpdate,
     BalanceAdjustment,
+    BalanceCheck,
+    BalanceCheckResult,
     BillPayment,
     CategoryBreakdownItem,
     CategoryCreate,
@@ -87,6 +89,18 @@ async def delete_account(
 ):
     try:
         await service.delete_account(db, user_id, account_id)
+    except service.FinanceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except service.FinanceValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.post("/accounts/check-balances", response_model=BalanceCheckResult)
+async def check_balances(
+    payload: BalanceCheck, user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)
+):
+    try:
+        return await service.check_balances(db, user_id, payload)
     except service.FinanceNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except service.FinanceValidationError as exc:
