@@ -19,6 +19,10 @@ class FinancialAccount(Base, UUIDPKMixin, TimestampMixin):
     # entered manually, this is what lets current_balance be accurate from day one
     # instead of starting everyone at zero regardless of their real balance.
     opening_balance: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
+    # Last day the user confirmed this account against the real bank/card app
+    # (see services/finance.py:check_balances) — anything logged since is the
+    # only thing that can have drifted.
+    last_checked_on: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     transactions: Mapped[list["Transaction"]] = relationship(
         back_populates="account", cascade="all, delete-orphan"

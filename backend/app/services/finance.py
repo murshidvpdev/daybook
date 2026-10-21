@@ -22,6 +22,7 @@ from app.schemas.finance import (
     AccountCreate,
     AccountUpdate,
     BalanceAdjustment,
+    BalanceCheck,
     BillPayment,
     CategoryCreate,
     CategoryUpdate,
@@ -74,6 +75,7 @@ async def _account_out(db: AsyncSession, account: FinancialAccount) -> dict:
         "currency": account.currency,
         "opening_balance": account.opening_balance,
         "current_balance": float(account.opening_balance) + income - expense,
+        "last_checked_on": account.last_checked_on,
     }
 
 
@@ -131,23 +133,60 @@ async def adjust_account_balance(db: AsyncSession, user_id: UUID, account_id: UU
     account = await _get_owned_account(db, user_id, account_id)
     if account.account_type == "credit_card":
         raise FinanceValidationError("Adjust this card's balance from the Credit Cards tab instead")
+    await _true_up(db, user_id, account, data.actual_balance, data.note or "Balance adjustment")
+    await db.commit()
+    return await _account_out(db, account)
 
+
+async def _true_up(
+    db: AsyncSession, user_id: UUID, account: FinancialAccount, actual: Decimal, note: str
+) -> bool:
+    """Posts one transaction for the gap between what Daybook has and what the
+    real app shows, and marks the account checked today. `actual` is the
+    balance for a bank/cash account and the amount owed for a credit card, so
+    for a card, owing more is a charge and owing less is a credit. Returns
+    whether anything had to be posted; the caller commits."""
     income, expense = await _income_expense_totals(db, account.id)
-    current_balance = account.opening_balance + Decimal(str(income)) - Decimal(str(expense))
-    diff = data.actual_balance - current_balance
+    opening = Decimal(str(account.opening_balance))
+    is_card = account.account_type == "credit_card"
+    if is_card:
+        current = opening + Decimal(str(expense)) - Decimal(str(income))
+    else:
+        current = opening + Decimal(str(income)) - Decimal(str(expense))
+    diff = actual - current
     if diff != 0:
         db.add(
             Transaction(
                 user_id=user_id,
                 account_id=account.id,
-                kind="income" if diff > 0 else "expense",
+                kind=("expense" if diff > 0 else "income") if is_card else ("income" if diff > 0 else "expense"),
                 amount=abs(diff),
-                note=data.note or "Balance adjustment",
+                note=note,
                 occurred_on=date.today(),
             )
         )
-        await db.commit()
-    return await _account_out(db, account)
+    account.last_checked_on = date.today()
+    return diff != 0
+
+
+async def check_balances(db: AsyncSession, user_id: UUID, data: BalanceCheck) -> dict:
+    ids = [e.account_id for e in data.entries]
+    if not ids:
+        raise FinanceValidationError("Nothing to check")
+    if len(set(ids)) != len(ids):
+        raise FinanceValidationError("Each account can only be checked once at a time")
+    accounts = [await _get_owned_account(db, user_id, account_id) for account_id in ids]
+    adjusted = 0
+    for account, entry in zip(accounts, data.entries, strict=True):
+        if entry.credit_limit is not None:
+            if account.account_type != "credit_card":
+                raise FinanceValidationError(f"{account.name} isn't a credit card, so it has no limit")
+            card = await db.scalar(select(CreditCard).where(CreditCard.account_id == account.id))
+            card.credit_limit = entry.credit_limit
+        if await _true_up(db, user_id, account, entry.actual, "Balance check"):
+            adjusted += 1
+    await db.commit()
+    return {"adjusted": adjusted, "accounts": [await _account_out(db, a) for a in accounts]}
 
 
 async def list_categories(db: AsyncSession, user_id: UUID) -> list[TransactionCategory]:
@@ -328,6 +367,7 @@ async def _credit_card_out(db: AsyncSession, card: CreditCard) -> dict:
         "due_day": card.due_day,
         "next_due_date": compute_next_due_date(card.due_day),
         "outstanding_balance": await _outstanding_balance(db, card.account_id, card.account.opening_balance),
+        "last_checked_on": card.account.last_checked_on,
     }
 
 
@@ -515,20 +555,8 @@ async def match_card_statement(
     the app thinks posts the gap as a charge (usually interest or fees you never
     logged), owing less posts it as a credit."""
     card = await _get_owned_credit_card(db, user_id, card_id)
-    current = Decimal(str(await _outstanding_balance(db, card.account_id, card.account.opening_balance)))
-    diff = data.actual_outstanding - current
-    if diff != 0:
-        db.add(
-            Transaction(
-                user_id=user_id,
-                account_id=card.account_id,
-                kind="expense" if diff > 0 else "income",
-                amount=abs(diff),
-                note=data.note or "Matched to statement",
-                occurred_on=date.today(),
-            )
-        )
-        await db.commit()
+    await _true_up(db, user_id, card.account, data.actual_outstanding, data.note or "Matched to statement")
+    await db.commit()
     return await _credit_card_out(db, card)
 
 

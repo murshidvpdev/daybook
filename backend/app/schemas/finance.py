@@ -28,6 +28,7 @@ class AccountOut(BaseModel):
     currency: str
     opening_balance: Decimal
     current_balance: Decimal
+    last_checked_on: date | None
 
 
 class BalanceAdjustment(BaseModel):
@@ -38,6 +39,27 @@ class BalanceAdjustment(BaseModel):
 
     actual_balance: Decimal
     note: str | None = None
+
+
+class BalanceCheckEntry(BaseModel):
+    account_id: UUID
+    # What the bank/card app shows right now: the balance for a bank or cash
+    # account, the total owed for a credit card.
+    actual: Decimal
+    credit_limit: Decimal | None = None  # credit cards only: update the limit while you're at it
+
+
+class BalanceCheck(BaseModel):
+    """Checking several accounts in one go after a stretch of unlogged spends.
+    Each one that's off gets a single adjustment for the difference, and every
+    one listed — off or not — is marked as checked today."""
+
+    entries: list[BalanceCheckEntry]
+
+
+class BalanceCheckResult(BaseModel):
+    adjusted: int  # how many accounts needed an adjustment
+    accounts: list[AccountOut]
 
 
 class CategoryCreate(BaseModel):
@@ -126,6 +148,7 @@ class CreditCardOut(BaseModel):
     due_day: int
     next_due_date: date
     outstanding_balance: Decimal
+    last_checked_on: date | None
 
 
 class EMICreate(BaseModel):
