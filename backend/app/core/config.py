@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     login_rate_limit: str = "10/minute"
     refresh_rate_limit: str = "30/minute"
     admin_login_rate_limit: str = "10/minute"
+    sms_capture_rate_limit: str = "60/minute"
 
     @model_validator(mode="after")
     def _refuse_weak_secret_outside_development(self) -> "Settings":

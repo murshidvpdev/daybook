@@ -45,11 +45,13 @@ from app.schemas.finance import (
     SIPOut,
     SIPUpdate,
     SpendTrendPoint,
+    StartFresh,
     TransactionCreate,
     TransactionOut,
     TransactionUpdate,
 )
 from app.services import finance as service
+from app.services import finance_backup
 from app.services.month_report import month_bounds
 from app.services.reminder import build_reminder_links
 
@@ -93,6 +95,19 @@ async def delete_account(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except service.FinanceValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.get("/backup")
+async def download_backup(user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
+    """Everything money-related, as one JSON file the user keeps."""
+    return await finance_backup.export_finance(db, user_id)
+
+
+@router.post("/start-fresh", status_code=status.HTTP_204_NO_CONTENT)
+async def start_fresh(
+    payload: StartFresh, user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)
+):
+    await finance_backup.start_fresh(db, user_id)
 
 
 @router.post("/accounts/check-balances", response_model=BalanceCheckResult)

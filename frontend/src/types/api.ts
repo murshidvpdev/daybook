@@ -37,6 +37,26 @@ export interface Account {
   opening_balance: string
   current_balance: string
   last_checked_on: string | null
+  last_four: string | null
+}
+
+export interface SmsCapture {
+  id: string
+  raw_text: string
+  sender: string | null
+  amount: string | null
+  kind: 'income' | 'expense' | null
+  last_four: string | null
+  counterparty: string | null
+  reference: string | null
+  occurred_on: string
+  account_id: string | null
+}
+
+export interface CaptureKeyStatus {
+  enabled: boolean
+  last_used_at: string | null
+  pending_count: number
 }
 
 export interface Category {

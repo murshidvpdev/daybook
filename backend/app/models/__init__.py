@@ -1,5 +1,6 @@
 from app.db.base import Base
 from app.models.admin import AdminUser
+from app.models.capture import SmsCapture, SmsCaptureKey
 from app.models.finance import (
     EMI,
     SIP,
@@ -35,6 +36,8 @@ __all__ = [
     "Routine",
     "RoutineCompletion",
     "RoutineItem",
+    "SmsCapture",
+    "SmsCaptureKey",
     "Transaction",
     "TransactionCategory",
     "User",

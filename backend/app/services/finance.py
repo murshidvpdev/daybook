@@ -76,6 +76,7 @@ async def _account_out(db: AsyncSession, account: FinancialAccount) -> dict:
         "opening_balance": account.opening_balance,
         "current_balance": float(account.opening_balance) + income - expense,
         "last_checked_on": account.last_checked_on,
+        "last_four": account.last_four,
     }
 
 

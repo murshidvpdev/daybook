@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { differenceInCalendarDays, parseISO } from 'date-fns'
 import { useState } from 'react'
 import { api } from '../../lib/api'
-import type { Account } from '../../types/api'
+import type { Account, CaptureKeyStatus } from '../../types/api'
 import { AccountsTab } from './AccountsTab'
 import { CHECK_EVERY_DAYS, checkedLabel } from './balanceCheck'
 import { CheckBalancesPanel } from './CheckBalancesPanel'
@@ -10,6 +10,8 @@ import { CreditCardsTab } from './CreditCardsTab'
 import { EmisTab } from './EmisTab'
 import { LendingTab } from './LendingTab'
 import { OverviewTab } from './OverviewTab'
+import { ReviewCapturesPanel } from './ReviewCapturesPanel'
+import { SettingsTab } from './SettingsTab'
 import { SipsTab } from './SipsTab'
 
 const TABS = [
@@ -19,6 +21,7 @@ const TABS = [
   { key: 'emis', label: 'EMIs' },
   { key: 'sips', label: 'SIPs' },
   { key: 'lending', label: 'Lending' },
+  { key: 'settings', label: 'Settings' },
 ] as const
 
 type TabKey = (typeof TABS)[number]['key']
@@ -26,6 +29,12 @@ type TabKey = (typeof TABS)[number]['key']
 export function FinancePage() {
   const [tab, setTab] = useState<TabKey>('overview')
   const [checking, setChecking] = useState(false)
+  const [reviewing, setReviewing] = useState(false)
+  const { data: capture } = useQuery({
+    queryKey: ['capture', 'key'],
+    queryFn: async () => (await api.get<CaptureKeyStatus>('/capture/key')).data,
+  })
+  const pendingSms = capture?.pending_count ?? 0
   const { data: accounts } = useQuery({
     queryKey: ['finance', 'accounts'],
     queryFn: async () => (await api.get<Account[]>('/finance/accounts')).data,
@@ -67,6 +76,16 @@ export function FinancePage() {
         </button>
       )}
 
+      {pendingSms > 0 && !reviewing && (
+        <button
+          onClick={() => setReviewing(true)}
+          className="mb-4 w-full rounded-lg bg-[var(--accent)] px-3 py-2 text-left text-xs font-medium text-white"
+        >
+          {pendingSms} SMS to review — tap to confirm {pendingSms === 1 ? 'it' : 'them'}
+        </button>
+      )}
+
+      {reviewing && <ReviewCapturesPanel onDone={() => setReviewing(false)} />}
       {checking && <CheckBalancesPanel onDone={() => setChecking(false)} />}
 
       <div className="mb-5 flex gap-1 overflow-x-auto border-b border-[var(--border)]">
@@ -91,6 +110,7 @@ export function FinancePage() {
       {tab === 'emis' && <EmisTab />}
       {tab === 'sips' && <SipsTab />}
       {tab === 'lending' && <LendingTab />}
+      {tab === 'settings' && <SettingsTab />}
     </div>
   )
 }
