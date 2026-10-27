@@ -150,12 +150,12 @@ test('editing a credit card, EMI, SIP, and lending record all persist', async ({
   await page.fill('input[placeholder="Friend\'s name"]', 'Arjun')
   await page.fill('input[placeholder="Amount"]', '2000')
   await page.getByRole('button', { name: 'Save' }).click()
-  await expect(page.getByText('Arjun')).toBeVisible()
+  await expect(page.getByText('Arjun').first()).toBeVisible()
 
   await page.getByRole('button', { name: 'Edit lending', exact: true }).click()
   await page.getByTestId('edit-lending-name').fill('Arjun Kumar')
   await page.getByRole('button', { name: 'Save' }).click()
-  await expect(page.getByText('Arjun Kumar')).toBeVisible()
+  await expect(page.getByText('Arjun Kumar').first()).toBeVisible()
 })
 
 test('editing an exercise, a session, and a set all persist', async ({ page }) => {

@@ -4,6 +4,7 @@ import { Card } from '../../components/Card'
 import { api } from '../../lib/api'
 import type { Account, CreditCard, Lending, SmsCapture } from '../../types/api'
 import { CategoryPicker } from './CategoryPicker'
+import { type Friend, FriendPicker } from './FriendPicker'
 
 type Purpose = 'normal' | 'lend' | 'repayment' | 'card-payment'
 
@@ -81,7 +82,7 @@ function CaptureRow({
   const [purpose, setPurpose] = useState<Purpose>('normal')
   const [categoryId, setCategoryId] = useState<string | null>(null)
   const [categoryBusy, setCategoryBusy] = useState(false)
-  const [personName, setPersonName] = useState('')
+  const [friend, setFriend] = useState<Friend>({ name: '', phone: '' })
   const [lendingId, setLendingId] = useState('')
   const [payCardId, setPayCardId] = useState('')
 
@@ -112,7 +113,7 @@ function CaptureRow({
         occurred_on: occurredOn,
         note: note || null,
         category_id: purpose === 'normal' ? categoryId : null,
-        lend: purpose === 'lend' ? { person_name: personName } : null,
+        lend: purpose === 'lend' ? { person_name: friend.name.trim(), phone_number: friend.phone || null } : null,
         lending_id: purpose === 'repayment' ? lendingId : null,
         pay_card_id: effectivePayCardId || null,
       }),
@@ -127,7 +128,7 @@ function CaptureRow({
     !!accountId &&
     Number(amount) > 0 &&
     !categoryBusy &&
-    (purpose !== 'lend' || personName.trim() !== '') &&
+    (purpose !== 'lend' || friend.name.trim() !== '') &&
     (purpose !== 'repayment' || lendingId !== '') &&
     (purpose !== 'card-payment' || effectivePayCardId !== '')
 
@@ -214,12 +215,7 @@ function CaptureRow({
           />
         )}
         {purpose === 'lend' && (
-          <input
-            placeholder="Friend's name"
-            value={personName}
-            onChange={(e) => setPersonName(e.target.value)}
-            className={inputClass}
-          />
+          <FriendPicker value={friend} onChange={setFriend} fieldBg="bg-[var(--surface)]" />
         )}
         {purpose === 'repayment' && (
           <select

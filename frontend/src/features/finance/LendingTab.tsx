@@ -1,11 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { Card } from '../../components/Card'
 import { PencilIcon, PlusIcon, TrashIcon } from '../../components/Icons'
 import { api } from '../../lib/api'
-import { isContactPickerSupported, parseVCard, pickContact } from '../../lib/contactPicker'
-import type { Account, Lending, ReminderLinks } from '../../types/api'
+import { isContactPickerSupported } from '../../lib/contactPicker'
+import type { Account, Lending, LendingPerson, ReminderLinks } from '../../types/api'
+import { type Friend, FriendPicker } from './FriendPicker'
+import { useLendingPeople } from './lendingPeople'
 
 export function LendingTab() {
   const queryClient = useQueryClient()
@@ -20,6 +22,7 @@ export function LendingTab() {
   const [showNew, setShowNew] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [paying, setPaying] = useState<{ id: string; mode: PayMode } | null>(null)
+  const [person, setPerson] = useState<LendingPerson | null>(null)
 
   const rowPayProps = (l: Lending) => ({
     payMode: paying?.id === l.id ? paying.mode : null,
@@ -38,8 +41,9 @@ export function LendingTab() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['finance'] }),
   })
 
-  const open = lendings?.filter((l) => !l.is_settled) ?? []
-  const settled = lendings?.filter((l) => l.is_settled) ?? []
+  const shown = person ? (lendings ?? []).filter((l) => person.lending_ids.includes(l.id)) : (lendings ?? [])
+  const open = shown.filter((l) => !l.is_settled)
+  const settled = shown.filter((l) => l.is_settled)
 
   return (
     <div>
@@ -53,6 +57,18 @@ export function LendingTab() {
       </div>
 
       {showNew && <NewLendingForm onDone={() => setShowNew(false)} />}
+
+      <PeopleSummary selectedKey={person?.key ?? null} onSelect={setPerson} />
+      {person && (
+        <div className="mb-3 flex items-center justify-between rounded-lg bg-[var(--surface-2)] px-3 py-2 text-xs">
+          <span>
+            Showing <b>{person.person_name}</b>'s {person.times} {person.times === 1 ? 'lending' : 'lendings'}
+          </span>
+          <button onClick={() => setPerson(null)} className="font-medium text-[var(--accent-ink)]">
+            Show everyone
+          </button>
+        </div>
+      )}
 
       {isLoading && <p className="text-sm text-[var(--ink-soft)]">Loading…</p>}
       {!isLoading && lendings?.length === 0 && !showNew && (
@@ -620,49 +636,216 @@ function EditLendingForm({ lending, onDone }: { lending: Lending; onDone: () => 
   )
 }
 
+function rupees(n: number) {
+  return `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
+}
+
+function PeopleSummary({
+  selectedKey,
+  onSelect,
+}: {
+  selectedKey: string | null
+  onSelect: (person: LendingPerson | null) => void
+}) {
+  const { data: people } = useLendingPeople()
+  const [editingKey, setEditingKey] = useState<string | null>(null)
+  if (!people || people.length === 0) return null
+
+  const owedToYou = people.reduce((sum, p) => sum + Number(p.lent_outstanding), 0)
+  const youOwe = people.reduce((sum, p) => sum + Number(p.borrowed_outstanding), 0)
+
+  return (
+    <Card className="mb-4">
+      <div className="mb-2 flex items-baseline justify-between">
+        <p className="font-medium">People</p>
+        <p className="text-xs text-[var(--ink-soft)]">
+          Owed to you <b className="text-[var(--accent-ink)]">{rupees(owedToYou)}</b>
+          {youOwe > 0 && (
+            <>
+              {' '}
+              · you owe <b className="text-[var(--danger)]">{rupees(youOwe)}</b>
+            </>
+          )}
+        </p>
+      </div>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-xs text-[var(--ink-soft)]">
+            <th className="pb-1 font-medium">Name</th>
+            <th className="pb-1 text-right font-medium">Times</th>
+            <th className="pb-1 text-right font-medium">Lent</th>
+            <th className="pb-1 text-right font-medium">Still owes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {people.map((p) => {
+            const isSelected = selectedKey === p.key
+            return (
+              <PersonRow
+                key={p.key}
+                person={p}
+                isSelected={isSelected}
+                isEditing={editingKey === p.key}
+                onSelect={() => onSelect(isSelected ? null : p)}
+                onEdit={() => setEditingKey(editingKey === p.key ? null : p.key)}
+                onDoneEditing={() => {
+                  setEditingKey(null)
+                  onSelect(null)
+                }}
+              />
+            )
+          })}
+        </tbody>
+      </table>
+    </Card>
+  )
+}
+
+function PersonRow({
+  person,
+  isSelected,
+  isEditing,
+  onSelect,
+  onEdit,
+  onDoneEditing,
+}: {
+  person: LendingPerson
+  isSelected: boolean
+  isEditing: boolean
+  onSelect: () => void
+  onEdit: () => void
+  onDoneEditing: () => void
+}) {
+  const queryClient = useQueryClient()
+  const [friend, setFriend] = useState<Friend>({ name: person.person_name, phone: person.phone_number ?? '' })
+  const owes = Number(person.lent_outstanding)
+  const youOwe = Number(person.borrowed_outstanding)
+  // One reminder for their whole remaining total — only once there's a number and something owed.
+  const { data: reminder } = useQuery({
+    queryKey: ['finance', 'lendings', 'people', person.key, 'reminder', person.lent_outstanding],
+    queryFn: async () =>
+      (await api.get<ReminderLinks>('/finance/lendings/people/reminder', { params: { key: person.key } })).data,
+    enabled: isSelected && !!person.phone_number && owes > 0,
+    retry: false,
+  })
+
+  const save = useMutation({
+    mutationFn: async () =>
+      (
+        await api.put('/finance/lendings/people', {
+          key: person.key,
+          person_name: friend.name.trim(),
+          phone_number: friend.phone || null,
+        })
+      ).data,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['finance', 'lendings'] })
+      onDoneEditing()
+    },
+  })
+
+  return (
+    <>
+      <tr
+        onClick={onSelect}
+        className={`cursor-pointer border-t border-[var(--border)] ${isSelected ? 'bg-[var(--surface-2)]' : ''}`}
+      >
+        <td className="py-2 pr-2">
+          <p className="font-medium">{person.person_name}</p>
+          <p className="text-xs text-[var(--ink-soft)]">{person.phone_number ?? 'no number yet'}</p>
+        </td>
+        <td className="py-2 text-right tabular-nums">{person.times}</td>
+        <td className="py-2 text-right tabular-nums">{rupees(Number(person.lent_total))}</td>
+        <td className="py-2 text-right tabular-nums font-semibold">
+          {owes > 0 ? <span className="text-[var(--accent-ink)]">{rupees(owes)}</span> : '—'}
+          {youOwe > 0 && <p className="text-xs font-normal text-[var(--danger)]">you owe {rupees(youOwe)}</p>}
+        </td>
+      </tr>
+      {isSelected && (
+        <tr>
+          <td colSpan={4} className="pb-3">
+            <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--ink-soft)]">
+              <span>
+                Repaid {rupees(Number(person.lent_repaid))} of {rupees(Number(person.lent_total))}
+                {person.open_count > 0 && ` · ${person.open_count} still open`}
+              </span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onEdit()
+                }}
+                className="font-medium text-[var(--accent-ink)]"
+              >
+                {person.phone_number ? 'Edit name / number' : 'Link contact'}
+              </button>
+            </div>
+            {reminder && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                <a
+                  href={reminder.whatsapp_link}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
+                >
+                  Remind {rupees(owes)} on WhatsApp
+                </a>
+                <a
+                  href={reminder.sms_link}
+                  onClick={(e) => e.stopPropagation()}
+                  className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--ink-soft)] hover:bg-[var(--surface-2)]"
+                >
+                  SMS
+                </a>
+              </div>
+            )}
+            {isEditing && (
+              <div className="mt-2 flex flex-col gap-2 rounded-lg border border-[var(--border)] bg-[var(--paper)] p-3">
+                <p className="text-xs text-[var(--ink-soft)]">
+                  Updates all {person.times} of {person.person_name}'s lendings at once.
+                </p>
+                <FriendPicker value={friend} onChange={setFriend} fieldBg="bg-[var(--surface)]" />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => save.mutate()}
+                    disabled={!friend.name.trim() || save.isPending}
+                    className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+                  >
+                    Save for all
+                  </button>
+                  <button onClick={onEdit} className="rounded-lg px-4 py-2 text-sm text-[var(--ink-soft)]">
+                    Cancel
+                  </button>
+                </div>
+                {save.isError && <p className="text-xs text-[var(--danger)]">Couldn't save — please try again.</p>}
+              </div>
+            )}
+          </td>
+        </tr>
+      )}
+    </>
+  )
+}
+
 function NewLendingForm({ onDone }: { onDone: () => void }) {
   const queryClient = useQueryClient()
   const { data: accounts } = useQuery({
     queryKey: ['finance', 'accounts'],
     queryFn: async () => (await api.get<Account[]>('/finance/accounts')).data,
   })
-  const [personName, setPersonName] = useState('')
-  const [phoneNumber, setPhoneNumber] = useState('')
+  const [friend, setFriend] = useState<Friend>({ name: '', phone: '' })
   const [direction, setDirection] = useState<'lent' | 'borrowed'>('lent')
   const [amount, setAmount] = useState('')
   const [remindOn, setRemindOn] = useState('')
   const [note, setNote] = useState('')
   const [accountId, setAccountId] = useState<string>('')
 
-  const vcardInputRef = useRef<HTMLInputElement>(null)
-  const [vcardError, setVcardError] = useState(false)
-
-  async function handlePickContact() {
-    const contact = await pickContact()
-    if (contact) {
-      if (contact.name) setPersonName(contact.name)
-      if (contact.tel) setPhoneNumber(contact.tel)
-    }
-  }
-
-  async function handleVCardFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    e.target.value = '' // allow re-selecting the same file next time
-    if (!file) return
-    const contact = parseVCard(await file.text())
-    setVcardError(!contact)
-    if (contact) {
-      if (contact.name) setPersonName(contact.name)
-      if (contact.tel) setPhoneNumber(contact.tel)
-    }
-  }
-
   const create = useMutation({
     mutationFn: async () =>
       (
         await api.post('/finance/lendings', {
-          person_name: personName,
-          phone_number: phoneNumber || null,
+          person_name: friend.name.trim(),
+          phone_number: friend.phone || null,
           direction,
           amount,
           remind_on: remindOn || null,
@@ -694,57 +877,12 @@ function NewLendingForm({ onDone }: { onDone: () => void }) {
             </button>
           ))}
         </div>
-        <input
-          placeholder="Friend's name"
-          value={personName}
-          onChange={(e) => setPersonName(e.target.value)}
-          className="rounded-lg border border-[var(--border)] bg-[var(--paper)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
-        />
-        <div className="flex gap-2">
-          <input
-            placeholder="Phone number (for reminders, optional)"
-            value={phoneNumber}
-            onChange={(e) => setPhoneNumber(e.target.value)}
-            className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--paper)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
-          />
-          {isContactPickerSupported() ? (
-            <button
-              type="button"
-              onClick={handlePickContact}
-              title="Pick from Contacts"
-              className="flex-none rounded-lg border border-[var(--border)] px-3 py-2 text-sm hover:bg-[var(--surface-2)]"
-            >
-              📇
-            </button>
-          ) : (
-            <>
-              <input
-                ref={vcardInputRef}
-                type="file"
-                accept=".vcf,text/vcard"
-                onChange={handleVCardFile}
-                className="hidden"
-              />
-              <button
-                type="button"
-                onClick={() => vcardInputRef.current?.click()}
-                title="Import from a shared contact (.vcf) — on iPhone: Contacts app → share the contact → Save to Files, then pick it here"
-                className="flex-none rounded-lg border border-[var(--border)] px-3 py-2 text-sm hover:bg-[var(--surface-2)]"
-              >
-                📇
-              </button>
-            </>
-          )}
-        </div>
-        {vcardError && (
-          <p className="text-xs text-[var(--danger)]">
-            Couldn't read a name or number from that file — is it a contact's .vcf?
-          </p>
-        )}
+        <FriendPicker value={friend} onChange={setFriend} />
         {!isContactPickerSupported() && (
           <p className="text-xs text-[var(--ink-soft)]">
             📇 imports a shared contact card — on iPhone: open the contact in Contacts, tap Share Contact → Save to
-            Files, then pick that file here.
+            Files, then pick that file here. You only need to do this once per friend; next time just start typing
+            their name.
           </p>
         )}
         <div className="grid grid-cols-2 gap-2">
@@ -791,7 +929,7 @@ function NewLendingForm({ onDone }: { onDone: () => void }) {
         <div className="flex gap-2">
           <button
             onClick={() => create.mutate()}
-            disabled={!personName.trim() || !amount || create.isPending}
+            disabled={!friend.name.trim() || !amount || create.isPending}
             className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
           >
             Save

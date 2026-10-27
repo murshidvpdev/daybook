@@ -8,6 +8,7 @@ import { getLastCategory, setLastCategory } from '../../lib/lastCategory'
 import type { Account, CreditCard, CreditCardSpendResult, Emi, Transaction } from '../../types/api'
 import { CategoryPicker } from './CategoryPicker'
 import { dueBadge } from './dueBadge'
+import { type Friend, FriendPicker } from './FriendPicker'
 import { useSyncFinanceBalances } from './useSyncFinanceBalances'
 
 type Panel = 'spend' | 'money-in' | 'emi' | 'activity' | 'edit' | null
@@ -174,8 +175,7 @@ function SpendForm({ cardId, onDone }: { cardId: string; onDone: () => void }) {
   const [categoryId, setCategoryId] = useState<string | null>(() => getLastCategory('expense'))
   const [categoryBusy, setCategoryBusy] = useState(false)
   const [isLent, setIsLent] = useState(false)
-  const [personName, setPersonName] = useState('')
-  const [phoneNumber, setPhoneNumber] = useState('')
+  const [friend, setFriend] = useState<Friend>({ name: '', phone: '' })
   const [remindOn, setRemindOn] = useState('')
 
   const submit = useMutation({
@@ -186,7 +186,7 @@ function SpendForm({ cardId, onDone }: { cardId: string; onDone: () => void }) {
           note: note || null,
           category_id: isLent ? null : categoryId,
           lend: isLent
-            ? { person_name: personName, phone_number: phoneNumber || null, remind_on: remindOn || null }
+            ? { person_name: friend.name.trim(), phone_number: friend.phone || null, remind_on: remindOn || null }
             : null,
         })
       ).data,
@@ -198,7 +198,7 @@ function SpendForm({ cardId, onDone }: { cardId: string; onDone: () => void }) {
     },
   })
 
-  const canSubmit = amount && (!isLent || personName.trim())
+  const canSubmit = amount && (!isLent || friend.name.trim())
 
   return (
     <div className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--paper)] p-3">
@@ -233,18 +233,7 @@ function SpendForm({ cardId, onDone }: { cardId: string; onDone: () => void }) {
         </label>
         {isLent && (
           <div className="flex flex-col gap-2 border-t border-[var(--border)] pt-2">
-            <input
-              placeholder="Friend's name"
-              value={personName}
-              onChange={(e) => setPersonName(e.target.value)}
-              className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
-            />
-            <input
-              placeholder="Phone number (for reminders, optional)"
-              value={phoneNumber}
-              onChange={(e) => setPhoneNumber(e.target.value)}
-              className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
-            />
+            <FriendPicker value={friend} onChange={setFriend} fieldBg="bg-[var(--surface)]" />
             <label className="flex flex-col text-xs text-[var(--ink-soft)]">
               Remind me on
               <input

@@ -51,7 +51,7 @@ test('credit cards, EMIs, SIPs, and lending all work end to end', async ({ page 
   await page.fill('input[placeholder*="Phone number"]', '+91 98765 43210')
   await page.fill('input[placeholder="Amount"]', '2000')
   await page.getByRole('button', { name: 'Save' }).click()
-  await expect(page.getByText('Arjun')).toBeVisible()
+  await expect(page.getByText('Arjun').first()).toBeVisible()
   const whatsappLink = page.getByRole('link', { name: 'Remind via WhatsApp' })
   await expect(whatsappLink).toBeVisible()
   await expect(whatsappLink).toHaveAttribute('href', /^https:\/\/wa\.me\/919876543210\?text=/)

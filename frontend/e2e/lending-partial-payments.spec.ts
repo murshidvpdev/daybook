@@ -22,7 +22,7 @@ test('lending supports partial repayments tracked against an account', async ({ 
   await page.fill("input[placeholder=\"Friend's name\"]", 'Arjun')
   await page.fill('input[placeholder="Amount"]', '1000')
   await page.getByRole('button', { name: 'Save' }).click()
-  await expect(page.getByText('Arjun')).toBeVisible()
+  await expect(page.getByText('Arjun').first()).toBeVisible()
 
   // Record a partial payment — not the full amount
   await page.getByRole('button', { name: 'Record payment' }).click()
@@ -60,7 +60,7 @@ test('recording a payment larger than the outstanding balance is rejected', asyn
   await page.fill("input[placeholder=\"Friend's name\"]", 'Sara')
   await page.fill('input[placeholder="Amount"]', '200')
   await page.getByRole('button', { name: 'Save' }).click()
-  await expect(page.getByText('Sara')).toBeVisible()
+  await expect(page.getByText('Sara').first()).toBeVisible()
 
   await page.getByRole('button', { name: 'Record payment' }).click()
   await page.getByPlaceholder('Amount').fill('9999')
