@@ -129,6 +129,22 @@ export interface Lending {
   emi: LendingEmi | null
 }
 
+export interface LendingPerson {
+  key: string
+  person_name: string
+  phone_number: string | null
+  times: number
+  open_count: number
+  last_given_on: string
+  lending_ids: string[]
+  lent_total: string
+  lent_repaid: string
+  lent_outstanding: string
+  borrowed_total: string
+  borrowed_repaid: string
+  borrowed_outstanding: string
+}
+
 export interface LendingEmi {
   id: string
   monthly_amount: string

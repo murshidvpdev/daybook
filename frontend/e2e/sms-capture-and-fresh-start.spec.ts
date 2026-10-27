@@ -64,7 +64,7 @@ test('bank SMS are captured, reviewed and booked; start fresh keeps lendings', a
   await page.getByRole('button', { name: 'Accounts' }).click()
   await expect(page.getByText('₹14,840', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Lending' }).click()
-  await expect(page.getByText(/^Arjun/)).toBeVisible()
+  await expect(page.getByText(/^Arjun/).first()).toBeVisible()
 
   // Start fresh: backup first, then wipe — the lending survives
   await page.getByRole('button', { name: 'Settings' }).click()
@@ -78,5 +78,5 @@ test('bank SMS are captured, reviewed and booked; start fresh keeps lendings', a
   await page.getByRole('button', { name: 'Accounts' }).click()
   await expect(page.getByText('Federal Bank', { exact: true })).toHaveCount(0)
   await page.getByRole('button', { name: 'Lending' }).click()
-  await expect(page.getByText(/^Arjun/)).toBeVisible()
+  await expect(page.getByText(/^Arjun/).first()).toBeVisible()
 })

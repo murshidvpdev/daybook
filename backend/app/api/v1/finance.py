@@ -41,6 +41,8 @@ from app.schemas.finance import (
     LendingSettle,
     LendingUpdate,
     MonthlyCashflowOut,
+    PersonOut,
+    PersonUpdate,
     ReminderLinksOut,
     SIPCreate,
     SIPOut,
@@ -52,7 +54,7 @@ from app.schemas.finance import (
     TransactionUpdate,
 )
 from app.services import finance as service
-from app.services import finance_backup
+from app.services import finance_backup, lending_people
 from app.services.month_report import month_bounds
 from app.services.reminder import build_reminder_links
 
@@ -461,6 +463,37 @@ async def stop_sip(sip_id: UUID, user_id: UUID = Depends(get_current_user_id), d
 @router.get("/lendings", response_model=list[LendingOut])
 async def list_lendings(user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
     return await service.list_lendings(db, user_id)
+
+
+@router.get("/lendings/people", response_model=list[PersonOut])
+async def list_lending_people(user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
+    return await lending_people.list_people(db, user_id)
+
+
+@router.get("/lendings/people/reminder", response_model=ReminderLinksOut)
+async def lending_person_reminder(
+    key: str, user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)
+):
+    """One reminder for everything this person still owes you."""
+    try:
+        links = await lending_people.person_reminder(db, user_id, key)
+    except service.FinanceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    if links is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No number on file, or nothing owed")
+    return links
+
+
+@router.put("/lendings/people", response_model=list[PersonOut])
+async def update_lending_person(
+    payload: PersonUpdate, user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)
+):
+    try:
+        return await lending_people.update_person(db, user_id, payload)
+    except service.FinanceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except service.FinanceValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
 @router.post("/lendings", response_model=LendingOut, status_code=status.HTTP_201_CREATED)

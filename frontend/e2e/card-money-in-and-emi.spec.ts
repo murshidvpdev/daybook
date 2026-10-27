@@ -52,7 +52,7 @@ test('card takes money in and out, and a friend spend converts to EMI', async ({
   await expect(page.getByText('Arjun will owe ₹31,800 in total')).toBeVisible()
   await page.getByRole('button', { name: 'Convert', exact: true }).click()
   await expect(page.getByText(/On EMI · ₹5,300\/mo · 0\/6 charged/)).toBeVisible()
-  await expect(page.getByText('₹31,800', { exact: true })).toBeVisible()
+  await expect(page.getByText('₹31,800', { exact: true }).first()).toBeVisible()
 
   // The friend's spend has left the card's current bill; the rest stays
   await page.getByRole('button', { name: 'Credit Cards' }).click()

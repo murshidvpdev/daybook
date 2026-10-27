@@ -350,6 +350,30 @@ class LendingEMIOut(BaseModel):
     next_due_date: date
 
 
+class PersonOut(BaseModel):
+    """Everything with one friend, across every time they borrowed or lent."""
+
+    key: str
+    person_name: str
+    phone_number: str | None
+    times: int
+    open_count: int
+    last_given_on: date
+    lending_ids: list[UUID]
+    lent_total: Decimal
+    lent_repaid: Decimal
+    lent_outstanding: Decimal  # what they still owe you
+    borrowed_total: Decimal
+    borrowed_repaid: Decimal
+    borrowed_outstanding: Decimal  # what you still owe them
+
+
+class PersonUpdate(BaseModel):
+    key: str  # from PersonOut
+    person_name: str
+    phone_number: str | None = None
+
+
 class LendingPaymentOut(BaseModel):
     id: UUID
     amount: Decimal
