@@ -56,12 +56,16 @@ async def update_habit(db: AsyncSession, user_id: UUID, habit_id: UUID, data: Ha
     return await _get_owned(db, user_id, habit_id)
 
 
-async def toggle_completion(db: AsyncSession, user_id: UUID, habit_id: UUID, on: date | None) -> Habit:
+async def toggle_completion(
+    db: AsyncSession, user_id: UUID, habit_id: UUID, on: date | None, mark_only: bool = False
+) -> Habit:
+    """mark_only sets it done and never undoes it, so a repeated call from an automated client is harmless."""
     habit = await _get_owned(db, user_id, habit_id)
     target_date = on or date.today()
     existing = next((c for c in habit.completions if c.completed_on == target_date), None)
     if existing is not None:
-        await db.delete(existing)
+        if not mark_only:
+            await db.delete(existing)
     else:
         db.add(HabitCompletion(habit_id=habit.id, completed_on=target_date))
     await db.commit()

@@ -123,6 +123,32 @@ async def toggle_routine_item(routine_id: UUID, item_id: UUID, on: date | None =
     return await _post(f"/routines/{routine_id}/items/{item_id}/toggle", on=on, at=at)
 
 
+@mcp.tool(annotations=WRITE)
+async def mark_routine_item_done(routine_id: UUID, item_id: UUID, on: date | None = None, at: str | None = None) -> str:
+    """Mark a routine item done for a day, today by default. Safe to repeat: it never undoes one that's
+    already done. `at` is the time it was done, as HH:MM, defaulting to now."""
+    return await _post(f"/routines/{routine_id}/items/{item_id}/toggle", on=on, at=at, mark_only=True)
+
+
+@mcp.tool(annotations=WRITE)
+async def create_routine(
+    name: str, items: list[str] | None = None, time_of_day: Literal["morning", "evening", "anytime"] = "anytime"
+) -> str:
+    """Create a routine, optionally with item titles in the order they should appear."""
+    body = {
+        "name": name,
+        "time_of_day": time_of_day,
+        "items": [{"title": title, "sort_order": i} for i, title in enumerate(items or [])],
+    }
+    return await _post("/routines", body)
+
+
+@mcp.tool(annotations=WRITE)
+async def add_routine_item(routine_id: UUID, title: str, sort_order: int = 0) -> str:
+    """Add an item to an existing routine."""
+    return await _post(f"/routines/{routine_id}/items", {"title": title, "sort_order": sort_order})
+
+
 @mcp.tool(annotations=READ_ONLY)
 async def list_habits(include_archived: bool = False) -> str:
     """All habits with id, cadence, whether done today, and current streak."""
@@ -133,6 +159,12 @@ async def list_habits(include_archived: bool = False) -> str:
 async def toggle_habit(habit_id: UUID, on: date | None = None) -> str:
     """Mark a habit done (or undo it if already done) for a day — today by default."""
     return await _post(f"/habits/{habit_id}/toggle", on=on)
+
+
+@mcp.tool(annotations=WRITE)
+async def mark_habit_done(habit_id: UUID, on: date | None = None) -> str:
+    """Mark a habit done for a day, today by default. Safe to repeat: it never undoes one that's already done."""
+    return await _post(f"/habits/{habit_id}/toggle", on=on, mark_only=True)
 
 
 @mcp.tool(annotations=WRITE)

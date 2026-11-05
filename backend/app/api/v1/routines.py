@@ -106,11 +106,12 @@ async def toggle_item(
     item_id: UUID,
     on: date | None = None,
     at: time | None = None,
+    mark_only: bool = False,
     user_id: UUID = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        routine = await service.toggle_item_completion(db, user_id, routine_id, item_id, on, at)
+        routine = await service.toggle_item_completion(db, user_id, routine_id, item_id, on, at, mark_only)
     except service.RoutineNotFound:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Routine or item not found")
     return service.annotate_completed_today([routine])[0]

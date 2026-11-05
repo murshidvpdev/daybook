@@ -99,7 +99,9 @@ async def toggle_item_completion(
     item_id: UUID,
     on: date | None,
     at: time | None = None,
+    mark_only: bool = False,
 ) -> Routine:
+    """mark_only sets it done and never undoes it, so a repeated call from an automated client is harmless."""
     routine = await _get_owned_routine(db, user_id, routine_id)
     item = next((i for i in routine.items if i.id == item_id), None)
     if item is None:
@@ -108,7 +110,8 @@ async def toggle_item_completion(
     target_date = on or date.today()
     existing = next((c for c in item.completions if c.completed_on == target_date), None)
     if existing is not None:
-        await db.delete(existing)
+        if not mark_only:
+            await db.delete(existing)
     else:
         db.add(
             RoutineCompletion(
