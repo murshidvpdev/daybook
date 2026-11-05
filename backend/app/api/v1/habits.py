@@ -58,11 +58,12 @@ async def archive_habit(
 async def toggle_habit(
     habit_id: UUID,
     on: date | None = None,
+    mark_only: bool = False,
     user_id: UUID = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        habit = await service.toggle_completion(db, user_id, habit_id, on)
+        habit = await service.toggle_completion(db, user_id, habit_id, on, mark_only)
     except service.HabitNotFound:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Habit not found")
     return service.to_out_dict(habit)

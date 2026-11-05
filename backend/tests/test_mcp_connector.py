@@ -379,3 +379,66 @@ async def test_monthly_cashflow_tool_separates_lending_from_income(mcp_client: A
     assert float(sept["income"]) == 50000.0
     assert float(sept["lending_in"]) == 5000.0
     assert float(sept["saved"]) == 50000.0
+
+
+async def test_routine_can_be_created_and_filled_from_claude(mcp_client: AsyncClient) -> None:
+    headers = await _register_user(mcp_client, "routines@example.com")
+    tokens = await _connect(mcp_client, "routines@example.com")
+
+    resp = await _call_tool(
+        mcp_client, tokens["access_token"], "create_routine", {"name": "Daily", "items": ["Breakfast", "Lunch"]}
+    )
+    assert resp.status_code == 200, resp.text
+    assert "isError" not in resp.json()["result"] or not resp.json()["result"]["isError"], resp.text
+
+    routine = (await mcp_client.get("/api/v1/routines", headers=headers)).json()[0]
+    assert routine["name"] == "Daily"
+    assert [(i["title"], i["sort_order"]) for i in routine["items"]] == [("Breakfast", 0), ("Lunch", 1)]
+
+    await _call_tool(
+        mcp_client, tokens["access_token"], "add_routine_item", {"routine_id": routine["id"], "title": "Dinner", "sort_order": 2}
+    )
+    routine = (await mcp_client.get("/api/v1/routines", headers=headers)).json()[0]
+    assert [i["title"] for i in routine["items"]] == ["Breakfast", "Lunch", "Dinner"]
+
+
+async def test_marking_done_twice_never_undoes_it(mcp_client: AsyncClient) -> None:
+    """toggle_* flip, so a retry undoes the tick. mark_*_done is what an automated client should call."""
+    headers = await _register_user(mcp_client, "marks@example.com")
+    habit = (await mcp_client.post("/api/v1/habits", json={"name": "Read"}, headers=headers)).json()
+    routine = (
+        await mcp_client.post(
+            "/api/v1/routines", json={"name": "Daily", "items": [{"title": "Lunch"}]}, headers=headers
+        )
+    ).json()
+    item_id = routine["items"][0]["id"]
+    tokens = await _connect(mcp_client, "marks@example.com")
+    day = "2026-03-02"
+
+    for _ in range(2):
+        await _call_tool(mcp_client, tokens["access_token"], "mark_habit_done", {"habit_id": habit["id"], "on": day})
+        await _call_tool(
+            mcp_client,
+            tokens["access_token"],
+            "mark_routine_item_done",
+            {"routine_id": routine["id"], "item_id": item_id, "on": day, "at": "14:17"},
+        )
+        report = (await mcp_client.get(f"/api/v1/reports/day/{day}", headers=headers)).json()
+        assert [h["name"] for h in report["habits_done"]] == ["Read"]
+        assert len(report["routine_items_done"]) == 1
+
+    # The toggle tools still flip, so undoing by hand keeps working
+    await _call_tool(mcp_client, tokens["access_token"], "toggle_habit", {"habit_id": habit["id"], "on": day})
+    report = (await mcp_client.get(f"/api/v1/reports/day/{day}", headers=headers)).json()
+    assert report["habits_done"] == []
+
+
+async def test_another_users_routine_cannot_be_changed(mcp_client: AsyncClient) -> None:
+    alice = await _register_user(mcp_client, "alice-r@example.com")
+    routine = (await mcp_client.post("/api/v1/routines", json={"name": "Hers"}, headers=alice)).json()
+    await _register_user(mcp_client, "bob-r@example.com")
+    bob = await _connect(mcp_client, "bob-r@example.com")
+
+    resp = await _call_tool(mcp_client, bob["access_token"], "add_routine_item", {"routine_id": routine["id"], "title": "X"})
+    assert resp.json()["result"]["isError"] is True
+    assert (await mcp_client.get("/api/v1/routines", headers=alice)).json()[0]["items"] == []
