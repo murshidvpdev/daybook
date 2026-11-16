@@ -1,5 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
 import { Card } from '../../components/Card'
 import { PencilIcon, TrashIcon } from '../../components/Icons'
 import { api } from '../../lib/api'
@@ -9,6 +9,8 @@ import { CategoryPicker } from './CategoryPicker'
 import { EditTransactionForm } from './EditTransactionForm'
 import { FinanceAnalytics } from './FinanceAnalytics'
 import { FinanceSummaryPanel } from './FinanceSummaryPanel'
+import { TransactionFilters } from './TransactionFilters'
+import { EMPTY_FILTERS, filtersToParams, type TxnFilters } from './txnFilters'
 import { useSyncFinanceBalances } from './useSyncFinanceBalances'
 
 export function OverviewTab() {
@@ -17,11 +19,26 @@ export function OverviewTab() {
     queryKey: ['finance', 'accounts'],
     queryFn: async () => (await api.get<Account[]>('/finance/accounts')).data,
   })
-  const transactionsQuery = useQuery({
-    queryKey: ['finance', 'transactions'],
-    queryFn: async () => (await api.get<Transaction[]>('/finance/transactions')).data,
+  const { data: categories } = useQuery({
+    queryKey: ['finance', 'categories'],
+    queryFn: async () => (await api.get<Category[]>('/finance/categories')).data,
   })
-  const { data: transactions, isLoading: loadingTxns } = transactionsQuery
+  const [filters, setFilters] = useState<TxnFilters>(EMPTY_FILTERS)
+  // Wait for a pause in typing before hitting the API for each keystroke.
+  const search = useDebouncedValue(filters.search, 300)
+  const params = filtersToParams({ ...filters, search }, FILTERED_LIMIT)
+  // The unfiltered feed keeps its exact old key, so quick-add's optimistic
+  // row (written to that key) still shows up instantly.
+  const listKey = params ? ['finance', 'transactions', 'filtered', params] : ['finance', 'transactions']
+  const transactionsQuery = useQuery({
+    queryKey: listKey,
+    queryFn: async () => (await api.get<Transaction[]>('/finance/transactions', { params: params ?? undefined })).data,
+    // Keep showing the previous results while a new filter loads, instead of
+    // flashing "Loading…" on every chip tap.
+    placeholderData: keepPreviousData,
+  })
+  const { data: transactions, isLoading: loadingTxns, isPlaceholderData } = transactionsQuery
+  const isFiltered = params !== null
   // Fetching transactions can silently post a backdated SIP transaction as a
   // side effect of the GET itself — keep the accounts/summary totals honest
   // whenever that happens instead of waiting for an unrelated mutation.
@@ -32,15 +49,13 @@ export function OverviewTab() {
   const deleteTransaction = useMutation({
     mutationFn: async (id: string) => api.delete(`/finance/transactions/${id}`),
     onMutate: async (id) => {
-      await queryClient.cancelQueries({ queryKey: ['finance', 'transactions'] })
-      const prev = queryClient.getQueryData<Transaction[]>(['finance', 'transactions'])
-      queryClient.setQueryData<Transaction[]>(['finance', 'transactions'], (old) =>
-        old?.filter((t) => t.id !== id),
-      )
-      return { prev }
+      await queryClient.cancelQueries({ queryKey: listKey })
+      const prev = queryClient.getQueryData<Transaction[]>(listKey)
+      queryClient.setQueryData<Transaction[]>(listKey, (old) => old?.filter((t) => t.id !== id))
+      return { prev, key: listKey }
     },
     onError: (_err, _id, context) => {
-      if (context?.prev) queryClient.setQueryData(['finance', 'transactions'], context.prev)
+      if (context?.prev) queryClient.setQueryData(context.key, context.prev)
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['finance'] })
@@ -49,6 +64,14 @@ export function OverviewTab() {
   })
 
   const allAccounts = accounts ?? []
+  const accountName = new Map(allAccounts.map((a) => [a.id, a.name]))
+  const categoryName = new Map((categories ?? []).map((c) => [c.id, c.name]))
+  // Totals for what's on screen — the point of filtering is usually "how much
+  // did I spend on X in Y", so answer it without making the user add it up.
+  const shown = (transactions ?? []).filter((t) => !t.is_transfer)
+  const spent = shown.filter((t) => t.kind === 'expense').reduce((sum, t) => sum + Number(t.amount), 0)
+  const received = shown.filter((t) => t.kind === 'income').reduce((sum, t) => sum + Number(t.amount), 0)
+  const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`
 
   return (
     <div>
@@ -70,12 +93,53 @@ export function OverviewTab() {
               below is for finding/editing one specific transaction. */}
           <FinanceAnalytics />
 
-          <h2 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wide text-[var(--ink-soft)]">Recent</h2>
+          <h2 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wide text-[var(--ink-soft)]">
+            {isFiltered ? 'Transactions' : 'Recent'}
+          </h2>
+          <TransactionFilters
+            value={filters}
+            onChange={setFilters}
+            accounts={allAccounts}
+            categories={categories ?? []}
+          />
+          {isFiltered && transactions && (
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-[var(--ink-soft)]">
+              <span>
+                {transactions.length === FILTERED_LIMIT ? `Latest ${FILTERED_LIMIT}` : transactions.length}{' '}
+                {transactions.length === 1 ? 'transaction' : 'transactions'}
+                {spent > 0 && (
+                  <>
+                    {' · '}
+                    <span className="font-semibold text-[var(--danger)]">−{inr(spent)}</span>
+                  </>
+                )}
+                {received > 0 && (
+                  <>
+                    {' · '}
+                    <span className="font-semibold text-[var(--accent-ink)]">+{inr(received)}</span>
+                  </>
+                )}
+              </span>
+              <button onClick={() => setFilters(EMPTY_FILTERS)} className="font-medium text-[var(--accent-ink)]">
+                Clear all
+              </button>
+            </div>
+          )}
+          {isFiltered && transactions?.length === FILTERED_LIMIT && (
+            <p className="mb-2 text-xs text-[var(--amber)]">
+              Showing the latest {FILTERED_LIMIT} matches — narrow the dates to see older ones.
+            </p>
+          )}
           {loadingTxns && <p className="text-sm text-[var(--ink-soft)]">Loading…</p>}
           {!loadingTxns && transactions?.length === 0 && (
-            <Card className="text-center text-sm text-[var(--ink-soft)]">No transactions yet.</Card>
+            <Card className="text-center text-sm text-[var(--ink-soft)]">
+              {isFiltered ? 'No transactions match these filters.' : 'No transactions yet.'}
+            </Card>
           )}
-          <div className="flex flex-col gap-2">
+          <div
+            data-testid="transaction-list"
+            className={`flex flex-col gap-2 transition-opacity ${isPlaceholderData ? 'opacity-60' : ''}`}
+          >
             {transactions?.map((t) => {
               // A just-added transaction renders under a temp "optimistic-*"
               // id until the real one arrives via invalidation — at which
@@ -93,10 +157,20 @@ export function OverviewTab() {
                   onDone={() => setEditingTxnId(null)}
                 />
               ) : (
-                <Card key={t.id} className="flex items-center justify-between py-3">
-                  <div>
+                <Card key={t.id} className="flex items-center justify-between gap-3 py-3">
+                  <div className="min-w-0">
                     <p className="text-sm font-medium">{t.note || (t.kind === 'expense' ? 'Expense' : 'Income')}</p>
-                    <p className="text-xs text-[var(--ink-soft)]">{isSaving ? 'Saving…' : t.occurred_on}</p>
+                    <p className="text-xs text-[var(--ink-soft)]">
+                      {isSaving
+                        ? 'Saving…'
+                        : [
+                            t.occurred_on,
+                            t.category_id ? categoryName.get(t.category_id) : null,
+                            allAccounts.length > 1 ? accountName.get(t.account_id) : null,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                    </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <span
@@ -141,6 +215,18 @@ export function OverviewTab() {
       </div>
     </div>
   )
+}
+
+/** Filtered results can span months, so allow more rows than the 50-row feed. */
+const FILTERED_LIMIT = 200
+
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value)
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delayMs)
+    return () => clearTimeout(id)
+  }, [value, delayMs])
+  return debounced
 }
 
 function ManageCategories() {

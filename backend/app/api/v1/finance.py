@@ -183,7 +183,8 @@ async def list_transactions(
     category_id: UUID | None = None,
     uncategorized: bool = False,
     kind: Literal["income", "expense"] | None = None,
-    limit: int = 50,
+    q: str | None = Query(None, max_length=100),
+    limit: int = Query(50, ge=1, le=500),
     user_id: UUID = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
@@ -197,6 +198,7 @@ async def list_transactions(
         category_id=category_id,
         uncategorized=uncategorized,
         kind=kind,
+        q=q,
     )
 
 

@@ -196,10 +196,13 @@ async def list_transactions(
     kind: Literal["income", "expense"] | None = None,
     account_id: UUID | None = None,
     category_id: UUID | None = None,
+    search: str | None = None,
     limit: int = 50,
 ) -> str:
     """Transactions, newest first, optionally filtered by date range, kind, account, or category.
-    Returns ids only for account/category — pair with list_accounts/list_categories for names."""
+    `search` matches the note or category name (substring, case-insensitive) or an exact amount.
+    Returns ids only for account/category — pair with list_accounts/list_categories for names.
+    `limit` is capped at 500."""
     return await _get(
         "/finance/transactions",
         start=start,
@@ -207,7 +210,8 @@ async def list_transactions(
         kind=kind,
         account_id=account_id,
         category_id=category_id,
-        limit=limit,
+        q=search,
+        limit=max(1, min(limit, 500)),
     )
 
 
