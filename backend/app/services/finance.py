@@ -2,7 +2,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -263,11 +263,16 @@ async def list_transactions(
     category_id: UUID | None = None,
     uncategorized: bool = False,
     kind: str | None = None,
+    q: str | None = None,
 ) -> list[Transaction]:
-    """Powers both the plain "Recent" feed (no filters) and drilling into a
-    single bar of a chart — one day, one category, one account, or the
-    income/expense split — so clicking through from a chart always lands on
-    the exact rows behind it."""
+    """Powers the plain "Recent" feed (no filters), the filter bar above it,
+    and drilling into a single bar of a chart — one day, one category, one
+    account, or the income/expense split — so clicking through from a chart
+    always lands on the exact rows behind it.
+
+    ``q`` is a free-text search: it matches the note or the category name
+    (case-insensitive, substring), or — when it reads as a number — the exact
+    amount, so typing "450" finds that ₹450 spend you half-remember."""
     await sync_recurring(db, user_id)
     conditions = [Transaction.user_id == user_id]
     if start is not None:
@@ -282,6 +287,26 @@ async def list_transactions(
         conditions.append(Transaction.category_id == category_id)
     if kind is not None:
         conditions.append(Transaction.kind == kind)
+    term = (q or "").strip()
+    if term:
+        # Escape LIKE wildcards so "50%" or "a_b" search for those literally.
+        escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        matching_categories = select(TransactionCategory.id).where(
+            TransactionCategory.user_id == user_id,
+            TransactionCategory.name.ilike(pattern, escape="\\"),
+        )
+        matches = [
+            Transaction.note.ilike(pattern, escape="\\"),
+            Transaction.category_id.in_(matching_categories),
+        ]
+        try:
+            as_amount = Decimal(term.replace(",", "").lstrip("₹"))
+        except ArithmeticError:
+            as_amount = None
+        if as_amount is not None and as_amount.is_finite():
+            matches.append(Transaction.amount == as_amount)
+        conditions.append(or_(*matches))
     result = await db.scalars(
         select(Transaction)
         .where(*conditions)

@@ -27,9 +27,11 @@ test('submitting right after creating a new category still assigns it, even on a
   await page.getByRole('button', { name: 'Save' }).click()
   await page.getByRole('button', { name: 'Overview', exact: true }).click()
 
-  await page.getByRole('combobox', { name: 'Category' }).selectOption('__new__')
-  await page.fill('input[placeholder="New category name"]', 'Groceries')
-  await page.getByRole('button', { name: 'Add', exact: true }).first().click()
+  // Type a category that doesn't exist yet and create it straight from the
+  // picker's search box — the one-tap path.
+  await page.getByRole('button', { name: 'Category', exact: true }).click()
+  await page.getByPlaceholder('Search categories…').fill('Groceries')
+  await page.getByRole('option', { name: '+ Create “Groceries”' }).click()
 
   // Fill the rest and hit the main Add immediately — before the delayed
   // category-creation request has resolved. The button must refuse to

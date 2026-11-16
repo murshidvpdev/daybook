@@ -19,7 +19,9 @@ test('charts sit above Recent, every chart drills into a table, and Uncategorize
   await page.getByRole('button', { name: 'Overview', exact: true }).click()
 
   // A categorized expense…
-  await page.getByRole('combobox', { name: 'Category' }).selectOption('__new__')
+  // "+ New category…" (with nothing typed in the search) opens the name form.
+  await page.getByRole('button', { name: 'Category', exact: true }).click()
+  await page.getByRole('option', { name: '+ New category…' }).click()
   await page.fill('input[placeholder="New category name"]', 'Groceries')
   await page.getByRole('button', { name: 'Add', exact: true }).first().click()
   await page.fill('input[placeholder="Amount"]', '450')
@@ -28,7 +30,8 @@ test('charts sit above Recent, every chart drills into a table, and Uncategorize
   await expect(page.getByText('Weekly shop')).toBeVisible()
 
   // …and an Uncategorized one, left with "No category".
-  await page.getByRole('combobox', { name: 'Category' }).selectOption('')
+  await page.getByRole('button', { name: 'Category', exact: true }).click()
+  await page.getByRole('option', { name: 'No category', exact: true }).click()
   await page.fill('input[placeholder="Amount"]', '120')
   await page.fill('input[placeholder="Note (optional)"]', 'Mystery spend')
   await page.getByRole('button', { name: 'Add', exact: true }).last().click()
@@ -69,7 +72,8 @@ test('charts sit above Recent, every chart drills into a table, and Uncategorize
   await expect(panel.getByRole('cell').filter({ hasText: 'Uncategorized' })).toBeVisible()
 
   await panel.getByRole('button', { name: 'Edit transaction' }).click()
-  await panel.getByRole('combobox', { name: 'Category' }).selectOption({ label: 'Groceries' })
+  await panel.getByRole('button', { name: 'Category', exact: true }).click()
+  await panel.getByRole('option', { name: 'Groceries', exact: true }).click()
   await panel.getByRole('button', { name: 'Save' }).click()
 
   // Re-assigned out of Uncategorized — this filtered view now has nothing left.
